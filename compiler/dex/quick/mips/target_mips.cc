@@ -151,6 +151,22 @@ void MipsMir2Lir::SetupTargetResourceMasks(LIR* lir, uint64_t flags) {
   if (flags & REG_DEF_LR) {
     lir->u.m.def_mask |= ENCODE_MIPS_REG_LR;
   }
+
+  if (flags & REG_DEF_HI) {
+    lir->u.m.def_mask |= ENCODE_MIPS_REG_HI;
+  }
+
+  if (flags & REG_DEF_LO) {
+    lir->u.m.def_mask |= ENCODE_MIPS_REG_LO;
+  }
+
+  if (flags & REG_USE_HI) {
+    lir->u.m.use_mask |= ENCODE_MIPS_REG_HI;
+  }
+
+  if (flags & REG_USE_LO) {
+    lir->u.m.use_mask |= ENCODE_MIPS_REG_LO;
+  }
 }
 
 /* For dumping instructions */
@@ -514,14 +530,14 @@ void MipsMir2Lir::FreeRegLocTemps(RegLocation rl_keep, RegLocation rl_free) {
  * ensure that all branch instructions can be restarted if
  * there is a trap in the shadow.  Allocate a temp register.
  */
-RegStorage MipsMir2Lir::LoadHelper(ThreadOffset offset) {
+RegStorage MipsMir2Lir::LoadHelper(ThreadOffset<4> offset) {
   LoadWordDisp(rs_rMIPS_SELF, offset.Int32Value(), rs_rT9);
   return rs_rT9;
 }
 
 LIR* MipsMir2Lir::CheckSuspendUsingLoad() {
   RegStorage tmp = AllocTemp();
-  LoadWordDisp(rs_rMIPS_SELF, Thread::ThreadSuspendTriggerOffset().Int32Value(), tmp);
+  LoadWordDisp(rs_rMIPS_SELF, Thread::ThreadSuspendTriggerOffset<4>().Int32Value(), tmp);
   LIR *inst = LoadWordDisp(tmp, 0, tmp);
   FreeTemp(tmp);
   return inst;
