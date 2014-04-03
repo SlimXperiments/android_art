@@ -19,9 +19,10 @@
 #define ATRACE_TAG ATRACE_TAG_DALVIK
 #include <utils/Trace.h>
 
+#include <fstream>
 #include <vector>
 #include <unistd.h>
-#include <fstream>
+#include <utility>
 
 #include "base/stl_util.h"
 #include "base/timing_logger.h"
@@ -57,6 +58,10 @@
 #include "transaction.h"
 #include "verifier/method_verifier.h"
 #include "verifier/method_verifier-inl.h"
+
+#ifdef HAVE_ANDROID_OS
+#include "cutils/properties.h"
+#endif
 
 namespace art {
 
@@ -2051,7 +2056,7 @@ bool CompilerDriver::ReadProfile(const std::string& filename) {
   std::vector<std::string> summary_info;
   Split(line, '/', summary_info);
   if (summary_info.size() != 3) {
-    // Bad summary info.  It should be count/total/bootpath
+    // Bad summary info.  It should be count/total/bootpath.
     return false;
   }
   // This is the number of hits in all methods.
@@ -2060,7 +2065,10 @@ bool CompilerDriver::ReadProfile(const std::string& filename) {
     total_count += atoi(summary_info[i].c_str());
   }
 
-  // Now read each line until the end of file.  Each line consists of 3 fields separated by /
+  // Now read each line until the end of file.  Each line consists of 3 fields separated by '/'.
+  // Store the info in descending order given by the most used methods.
+  typedef std::set<std::pair<int, std::vector<std::string>>> ProfileSet;
+  ProfileSet countSet;
   while (!in.eof()) {
     std::getline(in, line);
     if (in.eof()) {
@@ -2072,12 +2080,29 @@ bool CompilerDriver::ReadProfile(const std::string& filename) {
       // Malformed.
       break;
     }
-    const std::string& methodname = info[0];
-    uint32_t count = atoi(info[1].c_str());
-    uint32_t size = atoi(info[2].c_str());
-    double percent = (count * 100.0) / total_count;
-    // Add it to the profile map
-    profile_map_[methodname] = ProfileData(methodname, count, size, percent);
+    int count = atoi(info[1].c_str());
+    countSet.insert(std::make_pair(-count, info));
+  }
+
+  uint32_t curTotalCount = 0;
+  ProfileSet::iterator end = countSet.end();
+  const ProfileData* prevData = nullptr;
+  for (ProfileSet::iterator it = countSet.begin(); it != end ; it++) {
+    const std::string& methodname = it->second[0];
+    uint32_t count = -it->first;
+    uint32_t size = atoi(it->second[2].c_str());
+    double usedPercent = (count * 100.0) / total_count;
+
+    curTotalCount += count;
+    // Methods with the same count should be part of the same top K percentage bucket.
+    double topKPercentage = (prevData != nullptr) && (prevData->GetCount() == count)
+      ? prevData->GetTopKUsedPercentage()
+      : 100 * static_cast<double>(curTotalCount) / static_cast<double>(total_count);
+
+    // Add it to the profile map.
+    ProfileData curData = ProfileData(methodname, count, size, usedPercent, topKPercentage);
+    profile_map_[methodname] = curData;
+    prevData = &curData;
   }
   return true;
 }
@@ -2086,7 +2111,17 @@ bool CompilerDriver::SkipCompilation(const std::string& method_name) {
   if (!profile_ok_) {
     return true;
   }
-  constexpr double kThresholdPercent = 2.0;      // Anything above this threshold will be compiled.
+  // Methods that comprise topKPercentThreshold % of the total samples will be compiled.
+  double topKPercentThreshold = 90.0;
+#ifdef HAVE_ANDROID_OS
+  char buf[PROP_VALUE_MAX];
+  property_get("dalvik.vm.profile.compile_thr", buf, "90.0");
+  topKPercentThreshold = strtod(buf, nullptr);
+#endif
+  // Test for reasonable thresholds.
+  if (topKPercentThreshold < 10.0 || topKPercentThreshold > 90.0) {
+    topKPercentThreshold = 90.0;
+  }
 
   // First find the method in the profile map.
   ProfileMap::iterator i = profile_map_.find(method_name);
@@ -2096,13 +2131,16 @@ bool CompilerDriver::SkipCompilation(const std::string& method_name) {
     return true;
   }
   const ProfileData& data = i->second;
-  bool compile = data.IsAbove(kThresholdPercent);
+
+  // Compare against the start of the topK percentage bucket just in case the threshold
+  // falls inside a bucket.
+  bool compile = data.GetTopKUsedPercentage() - data.GetUsedPercent() <= topKPercentThreshold;
   if (compile) {
-    LOG(INFO) << "compiling method " << method_name << " because its usage is " <<
-        data.GetPercent() << "%";
+    LOG(INFO) << "compiling method " << method_name << " because its usage is part of top "
+        << data.GetTopKUsedPercentage() << "% with a percent of " << data.GetUsedPercent() << "%";
   } else {
-    VLOG(compiler) << "not compiling method " << method_name << " because usage is too low ("
-        << data.GetPercent() << "%)";
+    VLOG(compiler) << "not compiling method " << method_name << " because it's not part of leading "
+        << topKPercentThreshold << "% samples)";
   }
   return !compile;
 }
