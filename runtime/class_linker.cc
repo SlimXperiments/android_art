@@ -567,40 +567,16 @@ bool ClassLinker::GenerateOatFile(const char* dex_filename,
   argv.push_back("--runtime-arg");
   argv.push_back(Runtime::Current()->GetClassPathString());
 
-  argv.push_back("--runtime-arg");
-  std::string checkstr = "-implicit-checks";
+  Runtime::Current()->AddCurrentRuntimeFeaturesAsDex2OatArguments(&argv);
 
-  int nchecks = 0;
-  char checksep = ':';
-
-  if (!Runtime::Current()->ExplicitNullChecks()) {
-    checkstr += checksep;
-    checksep = ',';
-    checkstr += "null";
-    ++nchecks;
+  if (!Runtime::Current()->IsVerificationEnabled()) {
+    argv.push_back("--compiler-filter=verify-none");
   }
-  if (!Runtime::Current()->ExplicitSuspendChecks()) {
-    checkstr += checksep;
-    checksep = ',';
-    checkstr += "suspend";
-    ++nchecks;
-  }
-
-  if (!Runtime::Current()->ExplicitStackOverflowChecks()) {
-    checkstr += checksep;
-    checksep = ',';
-    checkstr += "stack";
-    ++nchecks;
-  }
-
-  if (nchecks == 0) {
-    checkstr += ":none";
-  }
-  argv.push_back(checkstr);
 
   if (!kIsTargetBuild) {
     argv.push_back("--host");
   }
+
   argv.push_back(boot_image_option);
   argv.push_back(dex_file_option);
   argv.push_back(oat_fd_option);
@@ -2559,6 +2535,12 @@ void ClassLinker::VerifyClass(const SirtRef<mirror::Class>& klass) {
         << PrettyClass(klass.get());
     CHECK(!Runtime::Current()->IsCompiler());
     klass->SetStatus(mirror::Class::kStatusVerifyingAtRuntime, self);
+  }
+
+  // Skip verification if disabled.
+  if (!Runtime::Current()->IsVerificationEnabled()) {
+    klass->SetStatus(mirror::Class::kStatusVerified, self);
+    return;
   }
 
   // Verify super class.

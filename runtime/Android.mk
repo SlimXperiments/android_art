@@ -73,6 +73,7 @@ LIBART_COMMON_SRC_FILES := \
 	hprof/hprof.cc \
 	image.cc \
 	indirect_reference_table.cc \
+	instruction_set.cc \
 	instrumentation.cc \
 	intern_table.cc \
 	interpreter/interpreter.cc \
@@ -436,6 +437,11 @@ $$(ENUM_OPERATOR_OUT_GEN): $$(GENERATED_SRC_DIR)/%_operator_out.cc : $(LOCAL_PAT
   endif
 
   ifeq ($$(art_target_or_host),target)
+    ifneq ($$(art_ndebug_or_debug),debug)
+      # Leave the symbols in the shared library so that stack unwinders can
+      # produce meaningful name resolution.
+      LOCAL_STRIP_MODULE := keep_symbols
+    endif
     include $(BUILD_SHARED_LIBRARY)
   else # host
     include $(BUILD_HOST_SHARED_LIBRARY)

@@ -79,6 +79,8 @@
 namespace art {
 
 static constexpr bool kEnableJavaStackTraceHandler = true;
+const char* Runtime::kDefaultInstructionSetFeatures =
+    STRINGIFY(ART_DEFAULT_INSTRUCTION_SET_FEATURES);
 Runtime* Runtime::instance_ = NULL;
 
 Runtime::Runtime()
@@ -130,7 +132,8 @@ Runtime::Runtime()
       preinitialization_transaction_(nullptr),
       null_pointer_handler_(nullptr),
       suspend_handler_(nullptr),
-      stack_overflow_handler_(nullptr) {
+      stack_overflow_handler_(nullptr),
+      verify_(false) {
   for (int i = 0; i < Runtime::kLastCalleeSaveType; i++) {
     callee_save_methods_[i] = nullptr;
   }
@@ -519,6 +522,7 @@ bool Runtime::Init(const Options& raw_options, bool ignore_unrecognized) {
   thread_list_ = new ThreadList;
   intern_table_ = new InternTable;
 
+  verify_ = options->verify_;
 
   if (options->interpreter_only_) {
     GetInstrumentation()->ForceInterpretOnly();
@@ -1214,6 +1218,59 @@ void Runtime::RecordWeakStringRemoval(mirror::String* s, uint32_t hash_code) con
 void Runtime::SetFaultMessage(const std::string& message) {
   MutexLock mu(Thread::Current(), fault_message_lock_);
   fault_message_ = message;
+}
+
+void Runtime::AddCurrentRuntimeFeaturesAsDex2OatArguments(std::vector<std::string>* argv)
+    const {
+  argv->push_back("--runtime-arg");
+  std::string checkstr = "-implicit-checks";
+
+  int nchecks = 0;
+  char checksep = ':';
+
+  if (!ExplicitNullChecks()) {
+    checkstr += checksep;
+    checksep = ',';
+    checkstr += "null";
+    ++nchecks;
+  }
+  if (!ExplicitSuspendChecks()) {
+    checkstr += checksep;
+    checksep = ',';
+    checkstr += "suspend";
+    ++nchecks;
+  }
+
+  if (!ExplicitStackOverflowChecks()) {
+    checkstr += checksep;
+    checksep = ',';
+    checkstr += "stack";
+    ++nchecks;
+  }
+
+  if (nchecks == 0) {
+    checkstr += ":none";
+  }
+  argv->push_back(checkstr);
+
+  // Make the dex2oat instruction set match that of the launching runtime. If we have multiple
+  // architecture support, dex2oat may be compiled as a different instruction-set than that
+  // currently being executed.
+#if defined(__arm__)
+  argv->push_back("--instruction-set=arm");
+#elif defined(__aarch64__)
+  argv->push_back("--instruction-set=arm64");
+#elif defined(__i386__)
+  argv->push_back("--instruction-set=x86");
+#elif defined(__x86_64__)
+  argv->push_back("--instruction-set=x86_64");
+#elif defined(__mips__)
+  argv->push_back("--instruction-set=mips");
+#endif
+
+  std::string features("--instruction-set-features=");
+  features += GetDefaultInstructionSetFeatures();
+  argv->push_back(features);
 }
 
 void Runtime::UpdateProfilerState(int state) {
