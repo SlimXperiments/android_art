@@ -346,7 +346,7 @@ void MipsMir2Lir::GenDivZeroCheck(RegStorage reg) {
   DCHECK(reg.IsPair());   // TODO: support k64BitSolo.
   RegStorage t_reg = AllocTemp();
   OpRegRegReg(kOpOr, t_reg, reg.GetLow(), reg.GetHigh());
-  GenImmedCheck(kCondEq, t_reg, 0, kThrowDivZero);
+  AddDivZeroSlowPath(kCondEq, t_reg, 0);
   FreeTemp(t_reg);
 }
 
@@ -377,6 +377,11 @@ LIR* MipsMir2Lir::OpIT(ConditionCode cond, const char* guide) {
   LOG(FATAL) << "Unexpected use of OpIT in Mips";
   return NULL;
 }
+
+void MipsMir2Lir::OpEndIT(LIR* it) {
+  LOG(FATAL) << "Unexpected use of OpEndIT in Mips";
+}
+
 
 void MipsMir2Lir::GenMulLong(Instruction::Code opcode, RegLocation rl_dest,
                              RegLocation rl_src1, RegLocation rl_src2) {

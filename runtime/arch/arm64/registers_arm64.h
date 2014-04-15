@@ -56,15 +56,16 @@ enum Register {
   X29 = 29,
   X30 = 30,
   X31 = 31,
-  TR  = 18,     // ART Thread Register.
+  TR  = 18,     // ART Thread Register - Needs to be one of the callee saved regs.
+  TR1 = 19,     // FIXME!
   IP0 = 16,     // Used as scratch by VIXL.
   IP1 = 17,     // Used as scratch by ART JNI Assembler.
   FP  = 29,
   LR  = 30,
   SP  = 31,     // SP is X31 and overlaps with XRZ but we encode it as a
                 // special register, due to the different instruction semantics.
-  XZR = 32,     // FIXME This needs to be reconciled with the JNI assembler.
-  kNumberOfCoreRegisters = 32,
+  XZR = 32,
+  kNumberOfCoreRegisters = 33,
   kNoRegister = -1,
 };
 std::ostream& operator<<(std::ostream& os, const Register& rhs);
@@ -103,7 +104,6 @@ enum WRegister {
   W29 = 29,
   W30 = 30,
   W31 = 31,
-  WSP = 31,
   WZR = 31,
   kNumberOfWRegisters = 32,
   kNoWRegister = -1,

@@ -43,7 +43,7 @@ RegStorage Mir2Lir::LoadArg(int in_position, bool wide) {
       RegStorage::InvalidReg();
 
   int offset = StackVisitor::GetOutVROffset(in_position);
-  if (cu_->instruction_set == kX86) {
+  if (cu_->instruction_set == kX86 || cu_->instruction_set == kX86_64) {
     /*
      * When doing a call for x86, it moves the stack pointer in order to push return.
      * Thus, we add another 4 bytes to figure out the out of caller (in of callee).
@@ -82,7 +82,7 @@ RegStorage Mir2Lir::LoadArg(int in_position, bool wide) {
 
 void Mir2Lir::LoadArgDirect(int in_position, RegLocation rl_dest) {
   int offset = StackVisitor::GetOutVROffset(in_position);
-  if (cu_->instruction_set == kX86) {
+  if (cu_->instruction_set == kX86 || cu_->instruction_set == kX86_64) {
     /*
      * When doing a call for x86, it moves the stack pointer in order to push return.
      * Thus, we add another 4 bytes to figure out the out of caller (in of callee).
@@ -120,7 +120,7 @@ void Mir2Lir::LoadArgDirect(int in_position, RegLocation rl_dest) {
 bool Mir2Lir::GenSpecialIGet(MIR* mir, const InlineMethod& special) {
   // FastInstance() already checked by DexFileMethodInliner.
   const InlineIGetIPutData& data = special.d.ifield_data;
-  if (data.method_is_static || data.object_arg != 0) {
+  if (data.method_is_static != 0u || data.object_arg != 0u) {
     // The object is not "this" and has to be null-checked.
     return false;
   }
@@ -151,8 +151,12 @@ bool Mir2Lir::GenSpecialIGet(MIR* mir, const InlineMethod& special) {
 bool Mir2Lir::GenSpecialIPut(MIR* mir, const InlineMethod& special) {
   // FastInstance() already checked by DexFileMethodInliner.
   const InlineIGetIPutData& data = special.d.ifield_data;
-  if (data.method_is_static || data.object_arg != 0) {
+  if (data.method_is_static != 0u || data.object_arg != 0u) {
     // The object is not "this" and has to be null-checked.
+    return false;
+  }
+  if (data.return_arg_plus1 != 0u) {
+    // The setter returns a method argument which we don't support here.
     return false;
   }
 

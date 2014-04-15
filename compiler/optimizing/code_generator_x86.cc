@@ -26,45 +26,69 @@
 namespace art {
 namespace x86 {
 
+static constexpr int kNumberOfPushedRegistersAtEntry = 1;
+static constexpr int kCurrentMethodStackOffset = 0;
+
+InstructionCodeGeneratorX86::InstructionCodeGeneratorX86(HGraph* graph, CodeGeneratorX86* codegen)
+      : HGraphVisitor(graph),
+        assembler_(codegen->GetAssembler()),
+        codegen_(codegen) {}
+
 void CodeGeneratorX86::GenerateFrameEntry() {
   // Create a fake register to mimic Quick.
   static const int kFakeReturnRegister = 8;
   core_spill_mask_ |= (1 << kFakeReturnRegister);
-  // We're currently always using EBP, which is callee-saved in Quick.
-  core_spill_mask_ |= (1 << EBP);
 
-  __ pushl(EBP);
-  __ movl(EBP, ESP);
-  // Add the current ART method to the frame size, the return pc, and EBP.
-  SetFrameSize(RoundUp(GetFrameSize() + 3 * kWordSize, kStackAlignment));
-  // The PC and EBP have already been pushed on the stack.
-  __ subl(ESP, Immediate(GetFrameSize() - 2 * kWordSize));
-  __ movl(Address(ESP, 0), EAX);
+  // Add the current ART method to the frame size, the return PC, and the filler.
+  SetFrameSize(RoundUp((
+      GetGraph()->GetMaximumNumberOfOutVRegs() + GetGraph()->GetNumberOfVRegs() + 3) * kX86WordSize,
+      kStackAlignment));
+  // The return PC has already been pushed on the stack.
+  __ subl(ESP, Immediate(GetFrameSize() - kNumberOfPushedRegistersAtEntry * kX86WordSize));
+  __ movl(Address(ESP, kCurrentMethodStackOffset), EAX);
 }
 
 void CodeGeneratorX86::GenerateFrameExit() {
-  __ movl(ESP, EBP);
-  __ popl(EBP);
+  __ addl(ESP, Immediate(GetFrameSize() - kNumberOfPushedRegistersAtEntry * kX86WordSize));
 }
 
 void CodeGeneratorX86::Bind(Label* label) {
   __ Bind(label);
 }
 
-void CodeGeneratorX86::Push(HInstruction* instruction, Location location) {
-  __ pushl(location.reg<Register>());
-}
-
 void InstructionCodeGeneratorX86::LoadCurrentMethod(Register reg) {
-  __ movl(reg, Address(ESP, 0));
+  __ movl(reg, Address(ESP, kCurrentMethodStackOffset));
 }
 
-void CodeGeneratorX86::Move(HInstruction* instruction, Location location) {
-  HIntConstant* constant = instruction->AsIntConstant();
-  if (constant != nullptr) {
-    __ movl(location.reg<Register>(), Immediate(constant->GetValue()));
+int32_t CodeGeneratorX86::GetStackSlot(HLocal* local) const {
+  uint16_t reg_number = local->GetRegNumber();
+  uint16_t number_of_vregs = GetGraph()->GetNumberOfVRegs();
+  uint16_t number_of_in_vregs = GetGraph()->GetNumberOfInVRegs();
+  if (reg_number >= number_of_vregs - number_of_in_vregs) {
+    // Local is a parameter of the method. It is stored in the caller's frame.
+    return GetFrameSize() + kX86WordSize  // ART method
+                          + (reg_number - number_of_vregs + number_of_in_vregs) * kX86WordSize;
   } else {
-    __ popl(location.reg<Register>());
+    // Local is a temporary in this method. It is stored in this method's frame.
+    return GetFrameSize() - (kNumberOfPushedRegistersAtEntry * kX86WordSize)
+                          - kX86WordSize  // filler.
+                          - (number_of_vregs * kX86WordSize)
+                          + (reg_number * kX86WordSize);
+  }
+}
+
+void CodeGeneratorX86::Move(HInstruction* instruction, Location location, HInstruction* move_for) {
+  if (instruction->AsIntConstant() != nullptr) {
+    __ movl(location.reg<Register>(), Immediate(instruction->AsIntConstant()->GetValue()));
+  } else if (instruction->AsLoadLocal() != nullptr) {
+    __ movl(location.reg<Register>(),
+            Address(ESP, GetStackSlot(instruction->AsLoadLocal()->GetLocal())));
+  } else {
+    // This can currently only happen when the instruction that requests the move
+    // is the next to be compiled.
+    DCHECK_EQ(instruction->GetNext(), move_for);
+    __ movl(location.reg<Register>(),
+            instruction->GetLocations()->Out().reg<Register>());
   }
 }
 
@@ -113,24 +137,14 @@ void LocationsBuilderX86::VisitLocal(HLocal* local) {
 
 void InstructionCodeGeneratorX86::VisitLocal(HLocal* local) {
   DCHECK_EQ(local->GetBlock(), GetGraph()->GetEntryBlock());
-  codegen_->SetFrameSize(codegen_->GetFrameSize() + kWordSize);
 }
 
 void LocationsBuilderX86::VisitLoadLocal(HLoadLocal* local) {
-  LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(local);
-  locations->SetOut(Location(EAX));
-  local->SetLocations(locations);
-}
-
-static int32_t GetStackSlot(HLocal* local) {
-  // We are currently using EBP to access locals, so the offset must be negative.
-  // +1 for going backwards, +1 for the method pointer.
-  return (local->GetRegNumber() + 2) * -kWordSize;
+  local->SetLocations(nullptr);
 }
 
 void InstructionCodeGeneratorX86::VisitLoadLocal(HLoadLocal* load) {
-  __ movl(load->GetLocations()->Out().reg<Register>(),
-          Address(EBP, GetStackSlot(load->GetLocal())));
+  // Nothing to do, this is driven by the code generator.
 }
 
 void LocationsBuilderX86::VisitStoreLocal(HStoreLocal* local) {
@@ -140,7 +154,7 @@ void LocationsBuilderX86::VisitStoreLocal(HStoreLocal* local) {
 }
 
 void InstructionCodeGeneratorX86::VisitStoreLocal(HStoreLocal* store) {
-  __ movl(Address(EBP, GetStackSlot(store->GetLocal())),
+  __ movl(Address(ESP, codegen_->GetStackSlot(store->GetLocal())),
           store->GetLocations()->InAt(1).reg<Register>());
 }
 
@@ -187,9 +201,62 @@ void InstructionCodeGeneratorX86::VisitReturn(HReturn* ret) {
   __ ret();
 }
 
+static constexpr Register kParameterCoreRegisters[] = { ECX, EDX, EBX };
+static constexpr size_t kParameterCoreRegistersLength = arraysize(kParameterCoreRegisters);
+
+class InvokeDexCallingConvention : public CallingConvention<Register> {
+ public:
+  InvokeDexCallingConvention()
+      : CallingConvention(kParameterCoreRegisters, kParameterCoreRegistersLength) {}
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(InvokeDexCallingConvention);
+};
+
+static constexpr Register kRuntimeParameterCoreRegisters[] = { EAX, ECX, EDX };
+static constexpr size_t kRuntimeParameterCoreRegistersLength =
+    arraysize(kRuntimeParameterCoreRegisters);
+
+class InvokeRuntimeCallingConvention : public CallingConvention<Register> {
+ public:
+  InvokeRuntimeCallingConvention()
+      : CallingConvention(kRuntimeParameterCoreRegisters,
+                          kRuntimeParameterCoreRegistersLength) {}
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(InvokeRuntimeCallingConvention);
+};
+
+void LocationsBuilderX86::VisitPushArgument(HPushArgument* argument) {
+  LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(argument);
+  InvokeDexCallingConvention calling_convention;
+  if (argument->GetArgumentIndex() < calling_convention.GetNumberOfRegisters()) {
+    Location location = Location(calling_convention.GetRegisterAt(argument->GetArgumentIndex()));
+    locations->SetInAt(0, location);
+    locations->SetOut(location);
+  } else {
+    locations->SetInAt(0, Location(EAX));
+  }
+  argument->SetLocations(locations);
+}
+
+void InstructionCodeGeneratorX86::VisitPushArgument(HPushArgument* argument) {
+  uint8_t argument_index = argument->GetArgumentIndex();
+  InvokeDexCallingConvention calling_convention;
+  size_t parameter_registers = calling_convention.GetNumberOfRegisters();
+  if (argument_index >= parameter_registers) {
+    uint8_t offset = calling_convention.GetStackOffsetOf(argument_index);
+    __ movl(Address(ESP, offset),
+            argument->GetLocations()->InAt(0).reg<Register>());
+
+  } else {
+    DCHECK_EQ(argument->GetLocations()->Out().reg<Register>(),
+              argument->GetLocations()->InAt(0).reg<Register>());
+  }
+}
+
 void LocationsBuilderX86::VisitInvokeStatic(HInvokeStatic* invoke) {
   LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(invoke);
-  CHECK_EQ(invoke->InputCount(), 0);
   locations->AddTemp(Location(EAX));
   invoke->SetLocations(locations);
 }
@@ -197,7 +264,7 @@ void LocationsBuilderX86::VisitInvokeStatic(HInvokeStatic* invoke) {
 void InstructionCodeGeneratorX86::VisitInvokeStatic(HInvokeStatic* invoke) {
   Register temp = invoke->GetLocations()->GetTemp(0).reg<Register>();
   size_t index_in_cache = mirror::Array::DataOffset(sizeof(mirror::Object*)).Int32Value() +
-      invoke->GetIndexInDexCache() * kWordSize;
+      invoke->GetIndexInDexCache() * kX86WordSize;
 
   // TODO: Implement all kinds of calls:
   // 1) boot -> boot
@@ -243,6 +310,86 @@ void InstructionCodeGeneratorX86::VisitAdd(HAdd* add) {
     default:
       LOG(FATAL) << "Unimplemented";
   }
+}
+
+void LocationsBuilderX86::VisitSub(HSub* sub) {
+  LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(sub);
+  switch (sub->GetResultType()) {
+    case Primitive::kPrimInt: {
+      locations->SetInAt(0, Location(EAX));
+      locations->SetInAt(1, Location(ECX));
+      locations->SetOut(Location(EAX));
+      break;
+    }
+    default:
+      LOG(FATAL) << "Unimplemented";
+  }
+  sub->SetLocations(locations);
+}
+
+void InstructionCodeGeneratorX86::VisitSub(HSub* sub) {
+  LocationSummary* locations = sub->GetLocations();
+  switch (sub->GetResultType()) {
+    case Primitive::kPrimInt:
+      DCHECK_EQ(locations->InAt(0).reg<Register>(), locations->Out().reg<Register>());
+      __ subl(locations->InAt(0).reg<Register>(), locations->InAt(1).reg<Register>());
+      break;
+    default:
+      LOG(FATAL) << "Unimplemented";
+  }
+}
+
+void LocationsBuilderX86::VisitNewInstance(HNewInstance* instruction) {
+  LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(instruction);
+  locations->SetOut(Location(EAX));
+  instruction->SetLocations(locations);
+}
+
+void InstructionCodeGeneratorX86::VisitNewInstance(HNewInstance* instruction) {
+  InvokeRuntimeCallingConvention calling_convention;
+  LoadCurrentMethod(calling_convention.GetRegisterAt(1));
+  __ movl(calling_convention.GetRegisterAt(0),
+          Immediate(instruction->GetTypeIndex()));
+
+  __ fs()->call(
+      Address::Absolute(QUICK_ENTRYPOINT_OFFSET(kX86WordSize, pAllocObjectWithAccessCheck)));
+
+  codegen_->RecordPcInfo(instruction->GetDexPc());
+}
+
+void LocationsBuilderX86::VisitParameterValue(HParameterValue* instruction) {
+  LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(instruction);
+  InvokeDexCallingConvention calling_convention;
+  uint32_t argument_index = instruction->GetIndex();
+  if (argument_index < calling_convention.GetNumberOfRegisters()) {
+    locations->SetOut(Location(calling_convention.GetRegisterAt(argument_index)));
+  } else {
+    locations->SetOut(Location(EAX));
+  }
+  instruction->SetLocations(locations);
+}
+
+void InstructionCodeGeneratorX86::VisitParameterValue(HParameterValue* instruction) {
+  LocationSummary* locations = instruction->GetLocations();
+  InvokeDexCallingConvention calling_convention;
+  uint32_t argument_index = instruction->GetIndex();
+  if (argument_index >= calling_convention.GetNumberOfRegisters()) {
+    uint8_t offset = calling_convention.GetStackOffsetOf(argument_index);
+    __ movl(locations->Out().reg<Register>(), Address(ESP, offset + codegen_->GetFrameSize()));
+  }
+}
+
+void LocationsBuilderX86::VisitNot(HNot* instruction) {
+  LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(instruction);
+  locations->SetInAt(0, Location(EAX));
+  locations->SetOut(Location(EAX));
+  instruction->SetLocations(locations);
+}
+
+void InstructionCodeGeneratorX86::VisitNot(HNot* instruction) {
+  LocationSummary* locations = instruction->GetLocations();
+  DCHECK_EQ(locations->InAt(0).reg<Register>(), locations->Out().reg<Register>());
+  __ xorl(locations->Out().reg<Register>(), Immediate(1));
 }
 
 }  // namespace x86

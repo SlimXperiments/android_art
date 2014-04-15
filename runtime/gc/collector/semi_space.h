@@ -21,6 +21,7 @@
 #include "base/macros.h"
 #include "base/mutex.h"
 #include "garbage_collector.h"
+#include "gc/accounting/space_bitmap.h"
 #include "immune_region.h"
 #include "object_callbacks.h"
 #include "offsets.h"
@@ -42,7 +43,6 @@ class Heap;
 namespace accounting {
   template <typename T> class AtomicStack;
   typedef AtomicStack<mirror::Object*> ObjectStack;
-  class SpaceBitmap;
 }  // namespace accounting
 
 namespace space {
@@ -198,7 +198,8 @@ class SemiSpace : public GarbageCollector {
   // Destination and source spaces (can be any type of ContinuousMemMapAllocSpace which either has
   // a live bitmap or doesn't).
   space::ContinuousMemMapAllocSpace* to_space_;
-  accounting::SpaceBitmap* to_space_live_bitmap_;  // Cached live bitmap as an optimization.
+  // Cached live bitmap as an optimization.
+  accounting::ContinuousSpaceBitmap* to_space_live_bitmap_;
   space::ContinuousMemMapAllocSpace* from_space_;
 
   Thread* self_;
@@ -217,6 +218,11 @@ class SemiSpace : public GarbageCollector {
   // bump pointer space to the non-moving space.
   uint64_t bytes_promoted_;
 
+  // Used for the generational mode. Keeps track of how many bytes of
+  // objects have been copied so far from the bump pointer space to
+  // the non-moving space, since the last whole heap collection.
+  uint64_t bytes_promoted_since_last_whole_heap_collection_;
+
   // Used for the generational mode. When true, collect the whole
   // heap. When false, collect only the bump pointer spaces.
   bool whole_heap_collection_;
@@ -227,6 +233,9 @@ class SemiSpace : public GarbageCollector {
 
   // How many bytes we avoided dirtying.
   size_t saved_bytes_;
+
+  // The name of the collector.
+  std::string collector_name_;
 
   // Used for the generational mode. The default interval of the whole
   // heap collection. If N, the whole heap collection occurs every N

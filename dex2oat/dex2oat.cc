@@ -139,7 +139,7 @@ static void Usage(const char* fmt, ...) {
   UsageError("      Example: --android-root=out/host/linux-x86");
   UsageError("      Default: $ANDROID_ROOT");
   UsageError("");
-  UsageError("  --instruction-set=(arm|mips|x86|x86_64): compile for a particular instruction");
+  UsageError("  --instruction-set=(arm|arm64|mips|x86|x86_64): compile for a particular instruction");
   UsageError("      set.");
   UsageError("      Example: --instruction-set=x86");
   UsageError("      Default: arm");
@@ -743,19 +743,7 @@ static int dex2oat(int argc, char** argv) {
   InstructionSetFeatures instruction_set_features =
       ParseFeatureList(Runtime::GetDefaultInstructionSetFeatures());
 
-#if defined(__arm__)
-  InstructionSet instruction_set = kThumb2;
-#elif defined(__aarch64__)
-  InstructionSet instruction_set = kArm64;
-#elif defined(__i386__)
-  InstructionSet instruction_set = kX86;
-#elif defined(__x86_64__)
-  InstructionSet instruction_set = kX86_64;
-#elif defined(__mips__)
-  InstructionSet instruction_set = kMips;
-#else
-  InstructionSet instruction_set = kNone;
-#endif
+  InstructionSet instruction_set = kRuntimeISA;
 
   // Profile file to use
   std::string profile_file;

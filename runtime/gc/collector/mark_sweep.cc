@@ -76,7 +76,7 @@ static constexpr bool kCountMarkedObjects = false;
 
 // Turn off kCheckLocks when profiling the GC since it slows the GC down by up to 40%.
 static constexpr bool kCheckLocks = kDebugLocking;
-static constexpr bool kVerifyRoots = kIsDebugBuild;
+static constexpr bool kVerifyRootsMarked = kIsDebugBuild;
 
 // If true, revoke the rosalloc thread-local buffers at the
 // checkpoint, as opposed to during the pause.
@@ -123,13 +123,15 @@ void MarkSweep::InitializePhase() {
   mark_immune_count_ = 0;
   mark_fastpath_count_ = 0;
   mark_slowpath_count_ = 0;
-  FindDefaultSpaceBitmap();
   {
     // TODO: I don't think we should need heap bitmap lock to get the mark bitmap.
     ReaderMutexLock mu(Thread::Current(), *Locks::heap_bitmap_lock_);
     mark_bitmap_ = heap_->GetMarkBitmap();
   }
-
+  if (!clear_soft_references_) {
+    // Always clear soft references if a non-sticky collection.
+    clear_soft_references_ = GetGcType() != collector::kGcTypeSticky;
+  }
   // Do any pre GC verification.
   timings_.NewSplit("PreGcVerification");
   heap_->PreGcVerification(this);
@@ -290,7 +292,7 @@ void MarkSweep::ReclaimPhase() {
 void MarkSweep::FindDefaultSpaceBitmap() {
   TimingLogger::ScopedSplit split("FindDefaultMarkBitmap", &timings_);
   for (const auto& space : GetHeap()->GetContinuousSpaces()) {
-    accounting::SpaceBitmap* bitmap = space->GetMarkBitmap();
+    accounting::ContinuousSpaceBitmap* bitmap = space->GetMarkBitmap();
     if (bitmap != nullptr &&
         space->GetGcRetentionPolicy() == space::kGcRetentionPolicyAlwaysCollect) {
       current_space_bitmap_ = bitmap;
@@ -356,7 +358,7 @@ inline void MarkSweep::MarkObjectNonNull(Object* obj) {
   }
   // Try to take advantage of locality of references within a space, failing this find the space
   // the hard way.
-  accounting::SpaceBitmap* object_bitmap = current_space_bitmap_;
+  accounting::ContinuousSpaceBitmap* object_bitmap = current_space_bitmap_;
   if (UNLIKELY(!object_bitmap->HasAddress(obj))) {
     object_bitmap = mark_bitmap_->GetContinuousSpaceBitmap(obj);
     if (kCountMarkedObjects) {
@@ -425,9 +427,9 @@ inline bool MarkSweep::MarkObjectParallel(const Object* obj) {
   }
   // Try to take advantage of locality of references within a space, failing this find the space
   // the hard way.
-  accounting::SpaceBitmap* object_bitmap = current_space_bitmap_;
+  accounting::ContinuousSpaceBitmap* object_bitmap = current_space_bitmap_;
   if (UNLIKELY(!object_bitmap->HasAddress(obj))) {
-    accounting::SpaceBitmap* new_bitmap = mark_bitmap_->GetContinuousSpaceBitmap(obj);
+    accounting::ContinuousSpaceBitmap* new_bitmap = mark_bitmap_->GetContinuousSpaceBitmap(obj);
     if (new_bitmap != NULL) {
       object_bitmap = new_bitmap;
     } else {
@@ -466,16 +468,17 @@ void MarkSweep::MarkRootCallback(Object** root, void* arg, uint32_t /*thread_id*
 }
 
 void MarkSweep::VerifyRootCallback(const Object* root, void* arg, size_t vreg,
-                                   const StackVisitor* visitor) {
-  reinterpret_cast<MarkSweep*>(arg)->VerifyRoot(root, vreg, visitor);
+                                   const StackVisitor* visitor, RootType root_type) {
+  reinterpret_cast<MarkSweep*>(arg)->VerifyRoot(root, vreg, visitor, root_type);
 }
 
-void MarkSweep::VerifyRoot(const Object* root, size_t vreg, const StackVisitor* visitor) {
+void MarkSweep::VerifyRoot(const Object* root, size_t vreg, const StackVisitor* visitor,
+                           RootType root_type) {
   // See if the root is on any space bitmap.
-  if (GetHeap()->GetLiveBitmap()->GetContinuousSpaceBitmap(root) == NULL) {
+  if (heap_->GetLiveBitmap()->GetContinuousSpaceBitmap(root) == nullptr) {
     space::LargeObjectSpace* large_object_space = GetHeap()->GetLargeObjectsSpace();
     if (!large_object_space->Contains(root)) {
-      LOG(ERROR) << "Found invalid root: " << root;
+      LOG(ERROR) << "Found invalid root: " << root << " with type " << root_type;
       if (visitor != NULL) {
         LOG(ERROR) << visitor->DescribeLocation() << " in VReg: " << vreg;
       }
@@ -682,7 +685,8 @@ class MarkStackTask : public Task {
 
 class CardScanTask : public MarkStackTask<false> {
  public:
-  CardScanTask(ThreadPool* thread_pool, MarkSweep* mark_sweep, accounting::SpaceBitmap* bitmap,
+  CardScanTask(ThreadPool* thread_pool, MarkSweep* mark_sweep,
+               accounting::ContinuousSpaceBitmap* bitmap,
                byte* begin, byte* end, byte minimum_age, size_t mark_stack_size,
                Object** mark_stack_obj)
       : MarkStackTask<false>(thread_pool, mark_sweep, mark_stack_size, mark_stack_obj),
@@ -693,7 +697,7 @@ class CardScanTask : public MarkStackTask<false> {
   }
 
  protected:
-  accounting::SpaceBitmap* const bitmap_;
+  accounting::ContinuousSpaceBitmap* const bitmap_;
   byte* const begin_;
   byte* const end_;
   const byte minimum_age_;
@@ -816,7 +820,7 @@ void MarkSweep::ScanGrayObjects(bool paused, byte minimum_age) {
 class RecursiveMarkTask : public MarkStackTask<false> {
  public:
   RecursiveMarkTask(ThreadPool* thread_pool, MarkSweep* mark_sweep,
-                    accounting::SpaceBitmap* bitmap, uintptr_t begin, uintptr_t end)
+                    accounting::ContinuousSpaceBitmap* bitmap, uintptr_t begin, uintptr_t end)
       : MarkStackTask<false>(thread_pool, mark_sweep, 0, NULL),
         bitmap_(bitmap),
         begin_(begin),
@@ -824,7 +828,7 @@ class RecursiveMarkTask : public MarkStackTask<false> {
   }
 
  protected:
-  accounting::SpaceBitmap* const bitmap_;
+  accounting::ContinuousSpaceBitmap* const bitmap_;
   const uintptr_t begin_;
   const uintptr_t end_;
 
@@ -918,7 +922,7 @@ void MarkSweep::ReMarkRoots() {
                                                           kVisitRootFlagStopLoggingNewRoots |
                                                           kVisitRootFlagClearRootLog));
   timings_.EndSplit();
-  if (kVerifyRoots) {
+  if (kVerifyRootsMarked) {
     timings_.StartSplit("(Paused)VerifyRoots");
     Runtime::Current()->VisitRoots(VerifyRootMarked, this);
     timings_.EndSplit();
@@ -1041,8 +1045,8 @@ void MarkSweep::SweepArray(accounting::ObjectStack* allocations, bool swap_bitma
   // Start by sweeping the continuous spaces.
   for (space::ContinuousSpace* space : sweep_spaces) {
     space::AllocSpace* alloc_space = space->AsAllocSpace();
-    accounting::SpaceBitmap* live_bitmap = space->GetLiveBitmap();
-    accounting::SpaceBitmap* mark_bitmap = space->GetMarkBitmap();
+    accounting::ContinuousSpaceBitmap* live_bitmap = space->GetLiveBitmap();
+    accounting::ContinuousSpaceBitmap* mark_bitmap = space->GetMarkBitmap();
     if (swap_bitmaps) {
       std::swap(live_bitmap, mark_bitmap);
     }

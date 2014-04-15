@@ -711,7 +711,9 @@ void Thread::DumpState(std::ostream& os, const Thread* thread, pid_t tid) {
   bool is_daemon = false;
   Thread* self = Thread::Current();
 
-  if (self != nullptr && thread != nullptr && thread->tlsPtr_.opeer != nullptr) {
+  // Don't do this if we are aborting since the GC may have all the threads suspended. This will
+  // cause ScopedObjectAccessUnchecked to deadlock.
+  if (gAborting == 0 && self != nullptr && thread != nullptr && thread->tlsPtr_.opeer != nullptr) {
     ScopedObjectAccessUnchecked soa(self);
     priority = soa.DecodeField(WellKnownClasses::java_lang_Thread_priority)
         ->GetInt(thread->tlsPtr_.opeer);
@@ -2069,6 +2071,9 @@ void Thread::VisitRoots(RootCallback* visitor, void* arg) {
   if (tlsPtr_.class_loader_override != nullptr) {
     visitor(reinterpret_cast<mirror::Object**>(&tlsPtr_.class_loader_override), arg, thread_id,
             kRootNativeStack);
+  }
+  if (tlsPtr_.monitor_enter_object != nullptr) {
+    visitor(&tlsPtr_.monitor_enter_object, arg, thread_id, kRootNativeStack);
   }
   tlsPtr_.jni_env->locals.VisitRoots(visitor, arg, thread_id, kRootJNILocal);
   tlsPtr_.jni_env->monitors.VisitRoots(visitor, arg, thread_id, kRootJNIMonitor);

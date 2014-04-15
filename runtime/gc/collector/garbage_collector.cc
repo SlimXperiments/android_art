@@ -174,8 +174,8 @@ void GarbageCollector::SwapBitmaps() {
     if (space->GetGcRetentionPolicy() == space::kGcRetentionPolicyAlwaysCollect ||
         (gc_type == kGcTypeFull &&
          space->GetGcRetentionPolicy() == space::kGcRetentionPolicyFullCollect)) {
-      accounting::SpaceBitmap* live_bitmap = space->GetLiveBitmap();
-      accounting::SpaceBitmap* mark_bitmap = space->GetMarkBitmap();
+      accounting::ContinuousSpaceBitmap* live_bitmap = space->GetLiveBitmap();
+      accounting::ContinuousSpaceBitmap* mark_bitmap = space->GetMarkBitmap();
       if (live_bitmap != nullptr && live_bitmap != mark_bitmap) {
         heap_->GetLiveBitmap()->ReplaceBitmap(live_bitmap, mark_bitmap);
         heap_->GetMarkBitmap()->ReplaceBitmap(mark_bitmap, live_bitmap);
@@ -201,7 +201,15 @@ uint64_t GarbageCollector::GetEstimatedMeanThroughput() const {
 
 uint64_t GarbageCollector::GetEstimatedLastIterationThroughput() const {
   // Add 1ms to prevent possible division by 0.
-  return (freed_bytes_ * 1000) / (NsToMs(GetDurationNs()) + 1);
+  return (static_cast<uint64_t>(freed_bytes_) * 1000) / (NsToMs(GetDurationNs()) + 1);
+}
+
+void GarbageCollector::ResetMeasurements() {
+  cumulative_timings_.Reset();
+  pause_histogram_.Reset();
+  total_time_ns_ = 0;
+  total_freed_objects_ = 0;
+  total_freed_bytes_ = 0;
 }
 
 }  // namespace collector

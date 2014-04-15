@@ -22,6 +22,7 @@
 #include "base/macros.h"
 #include "base/mutex.h"
 #include "garbage_collector.h"
+#include "gc/accounting/space_bitmap.h"
 #include "immune_region.h"
 #include "object_callbacks.h"
 #include "offsets.h"
@@ -45,7 +46,6 @@ class Heap;
 namespace accounting {
   template<typename T> class AtomicStack;
   typedef AtomicStack<mirror::Object*> ObjectStack;
-  class SpaceBitmap;
 }  // namespace accounting
 
 namespace collector {
@@ -249,10 +249,10 @@ class MarkSweep : public GarbageCollector {
   size_t GetThreadCount(bool paused) const;
 
   static void VerifyRootCallback(const mirror::Object* root, void* arg, size_t vreg,
-                                 const StackVisitor *visitor);
+                                 const StackVisitor *visitor, RootType root_type);
 
-  void VerifyRoot(const mirror::Object* root, size_t vreg, const StackVisitor* visitor)
-      NO_THREAD_SAFETY_ANALYSIS;
+  void VerifyRoot(const mirror::Object* root, size_t vreg, const StackVisitor* visitor,
+                  RootType root_type) NO_THREAD_SAFETY_ANALYSIS;
 
   // Push a single reference on a mark stack.
   void PushOnMarkStack(mirror::Object* obj);
@@ -283,7 +283,7 @@ class MarkSweep : public GarbageCollector {
 
   // Current space, we check this space first to avoid searching for the appropriate space for an
   // object.
-  accounting::SpaceBitmap* current_space_bitmap_;
+  accounting::ContinuousSpaceBitmap* current_space_bitmap_;
   // Cache the heap's mark bitmap to prevent having to do 2 loads during slow path marking.
   accounting::HeapBitmap* mark_bitmap_;
 

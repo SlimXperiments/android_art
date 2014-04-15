@@ -115,6 +115,8 @@ enum ProcessState {
 };
 std::ostream& operator<<(std::ostream& os, const ProcessState& process_state);
 
+std::ostream& operator<<(std::ostream& os, const RootType& root_type);
+
 class Heap {
  public:
   // If true, measure the total allocation time.
@@ -148,7 +150,7 @@ class Heap {
   explicit Heap(size_t initial_size, size_t growth_limit, size_t min_free,
                 size_t max_free, double target_utilization, size_t capacity,
                 const std::string& original_image_file_name,
-                CollectorType post_zygote_collector_type, CollectorType background_collector_type,
+                CollectorType foreground_collector_type, CollectorType background_collector_type,
                 size_t parallel_gc_threads, size_t conc_gc_threads, bool low_memory_mode,
                 size_t long_pause_threshold, size_t long_gc_threshold,
                 bool ignore_max_footprint, bool use_tlab, bool verify_pre_gc_heap,
@@ -158,28 +160,28 @@ class Heap {
   ~Heap();
 
   // Allocates and initializes storage for an object instance.
-  template <bool kInstrumented, typename PreFenceVisitor = VoidFunctor>
+  template <bool kInstrumented, typename PreFenceVisitor>
   mirror::Object* AllocObject(Thread* self, mirror::Class* klass, size_t num_bytes,
-                              const PreFenceVisitor& pre_fence_visitor = VoidFunctor())
+                              const PreFenceVisitor& pre_fence_visitor)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
     return AllocObjectWithAllocator<kInstrumented, true>(self, klass, num_bytes,
                                                          GetCurrentAllocator(),
                                                          pre_fence_visitor);
   }
 
-  template <bool kInstrumented, typename PreFenceVisitor = VoidFunctor>
+  template <bool kInstrumented, typename PreFenceVisitor>
   mirror::Object* AllocNonMovableObject(Thread* self, mirror::Class* klass, size_t num_bytes,
-                                        const PreFenceVisitor& pre_fence_visitor = VoidFunctor())
+                                        const PreFenceVisitor& pre_fence_visitor)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
     return AllocObjectWithAllocator<kInstrumented, true>(self, klass, num_bytes,
                                                          GetCurrentNonMovingAllocator(),
                                                          pre_fence_visitor);
   }
 
-  template <bool kInstrumented, bool kCheckLargeObject, typename PreFenceVisitor = VoidFunctor>
+  template <bool kInstrumented, bool kCheckLargeObject, typename PreFenceVisitor>
   ALWAYS_INLINE mirror::Object* AllocObjectWithAllocator(
       Thread* self, mirror::Class* klass, size_t byte_count, AllocatorType allocator,
-      const PreFenceVisitor& pre_fence_visitor = VoidFunctor())
+      const PreFenceVisitor& pre_fence_visitor)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   AllocatorType GetCurrentAllocator() const {
@@ -193,8 +195,6 @@ class Heap {
   // Visit all of the live objects in the heap.
   void VisitObjects(ObjectCallback callback, void* arg)
       SHARED_LOCKS_REQUIRED(Locks::heap_bitmap_lock_, Locks::mutator_lock_);
-
-  void SwapSemiSpaces() EXCLUSIVE_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   void CheckPreconditionsForAllocObject(mirror::Class* c, size_t byte_count)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
@@ -246,10 +246,6 @@ class Heap {
 
   // Returns true if there is any chance that the object (obj) will move.
   bool IsMovableObject(const mirror::Object* obj) const;
-
-  // Returns true if an object is in the temp space, if this happens its usually indicative of
-  // compaction related errors.
-  bool IsInTempSpace(const mirror::Object* obj) const;
 
   // Enables us to compacting GC until objects are released.
   void IncrementDisableMovingGC(Thread* self);
@@ -474,7 +470,9 @@ class Heap {
       LOCKS_EXCLUDED(Locks::runtime_shutdown_lock_, Locks::thread_list_lock_);
 
   // Mark all the objects in the allocation stack in the specified bitmap.
-  void MarkAllocStack(accounting::SpaceBitmap* bitmap1, accounting::SpaceBitmap* bitmap2,
+  // TODO: Refactor?
+  void MarkAllocStack(accounting::SpaceBitmap<kObjectAlignment>* bitmap1,
+                      accounting::SpaceBitmap<kObjectAlignment>* bitmap2,
                       accounting::ObjectSet* large_objects, accounting::ObjectStack* stack)
       EXCLUSIVE_LOCKS_REQUIRED(Locks::heap_bitmap_lock_);
 
@@ -566,7 +564,8 @@ class Heap {
 
  private:
   void Compact(space::ContinuousMemMapAllocSpace* target_space,
-               space::ContinuousMemMapAllocSpace* source_space);
+               space::ContinuousMemMapAllocSpace* source_space)
+      EXCLUSIVE_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   void FinishGC(Thread* self, collector::GcType gc_type) LOCKS_EXCLUDED(gc_complete_lock_);
 
@@ -578,7 +577,7 @@ class Heap {
   static ALWAYS_INLINE bool AllocatorMayHaveConcurrentGC(AllocatorType allocator_type) {
     return AllocatorHasAllocationStack(allocator_type);
   }
-  static bool IsCompactingGC(CollectorType collector_type) {
+  static bool IsMovingGc(CollectorType collector_type) {
     return collector_type == kCollectorTypeSS || collector_type == kCollectorTypeGSS ||
         collector_type == kCollectorTypeCC;
   }
@@ -606,6 +605,10 @@ class Heap {
   mirror::Object* AllocateInto(Thread* self, space::AllocSpace* space, mirror::Class* c,
                                size_t bytes)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+
+  // Need to do this with mutators paused so that somebody doesn't accidentally allocate into the
+  // wrong space.
+  void SwapSemiSpaces() EXCLUSIVE_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   // Try to allocate a number of bytes, this function never does any GCs. Needs to be inlined so
   // that the switch statement is constant optimized in the entrypoints.
@@ -666,6 +669,10 @@ class Heap {
   // Find a collector based on GC type.
   collector::GarbageCollector* FindCollectorByGcType(collector::GcType gc_type);
 
+  // Create the main free list space, typically either a RosAlloc space or DlMalloc space.
+  void CreateMainMallocSpace(MemMap* mem_map, size_t initial_size, size_t growth_limit,
+                             size_t capacity);
+
   // Given the current contents of the alloc space, increase the allowed heap footprint to match
   // the target utilization ratio.  This should only be called immediately after a full garbage
   // collection.
@@ -691,7 +698,8 @@ class Heap {
   void SignalHeapTrimDaemon(Thread* self);
 
   // Push an object onto the allocation stack.
-  void PushOnAllocationStack(Thread* self, mirror::Object* obj);
+  void PushOnAllocationStack(Thread* self, mirror::Object** obj)
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   // What kind of concurrency behavior is the runtime after? Currently true for concurrent mark
   // sweep GC, false for other GC types.
@@ -734,17 +742,10 @@ class Heap {
   // A remembered set remembers all of the references from the it's space to the target space.
   SafeMap<space::Space*, accounting::RememberedSet*> remembered_sets_;
 
-  // Keep the free list allocator mem map lying around when we transition to background so that we
-  // don't have to worry about virtual address space fragmentation.
-  UniquePtr<MemMap> allocator_mem_map_;
-
-  // The mem-map which we will use for the non-moving space after the zygote is done forking:
-  UniquePtr<MemMap> post_zygote_non_moving_space_mem_map_;
-
   // The current collector type.
   CollectorType collector_type_;
-  // Which collector we will switch to after zygote fork.
-  CollectorType post_zygote_collector_type_;
+  // Which collector we use when the app is in the foreground.
+  CollectorType foreground_collector_type_;
   // Which collector we will use when the app is notified of a transition to background.
   CollectorType background_collector_type_;
   // Desired collector type, heap trimming daemon transitions the heap if it is != collector_type_.

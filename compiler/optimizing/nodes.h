@@ -41,6 +41,9 @@ class HGraph : public ArenaObject {
       : arena_(arena),
         blocks_(arena, kDefaultNumberOfBlocks),
         dominator_order_(arena, kDefaultNumberOfBlocks),
+        maximum_number_of_out_vregs_(0),
+        number_of_vregs_(0),
+        number_of_in_vregs_(0),
         current_instruction_id_(0) { }
 
   ArenaAllocator* GetArena() const { return arena_; }
@@ -58,6 +61,31 @@ class HGraph : public ArenaObject {
   int GetNextInstructionId() {
     return current_instruction_id_++;
   }
+
+  uint16_t GetMaximumNumberOfOutVRegs() const {
+    return maximum_number_of_out_vregs_;
+  }
+
+  void UpdateMaximumNumberOfOutVRegs(uint16_t new_value) {
+    maximum_number_of_out_vregs_ = std::max(new_value, maximum_number_of_out_vregs_);
+  }
+
+  void SetNumberOfVRegs(uint16_t number_of_vregs) {
+    number_of_vregs_ = number_of_vregs;
+  }
+
+  uint16_t GetNumberOfVRegs() const {
+    return number_of_vregs_;
+  }
+
+  void SetNumberOfInVRegs(uint16_t value) {
+    number_of_in_vregs_ = value;
+  }
+
+  uint16_t GetNumberOfInVRegs() const {
+    return number_of_in_vregs_;
+  }
+
 
  private:
   HBasicBlock* FindCommonDominator(HBasicBlock* first, HBasicBlock* second) const;
@@ -80,6 +108,15 @@ class HGraph : public ArenaObject {
 
   HBasicBlock* entry_block_;
   HBasicBlock* exit_block_;
+
+  // The maximum number of virtual registers arguments passed to a HInvoke in this graph.
+  uint16_t maximum_number_of_out_vregs_;
+
+  // The number of virtual registers in this method. Contains the parameters.
+  uint16_t number_of_vregs_;
+
+  // The number of virtual registers used by parameters of this method.
+  uint16_t number_of_in_vregs_;
 
   // The current id to assign to a newly added instruction. See HInstruction.id_.
   int current_instruction_id_;
@@ -189,9 +226,14 @@ class HBasicBlock : public ArenaObject {
   M(InvokeStatic)                                          \
   M(LoadLocal)                                             \
   M(Local)                                                 \
+  M(NewInstance)                                           \
+  M(Not)                                                   \
+  M(ParameterValue)                                        \
+  M(PushArgument)                                          \
   M(Return)                                                \
   M(ReturnVoid)                                            \
   M(StoreLocal)                                            \
+  M(Sub)                                                   \
 
 #define FORWARD_DECLARATION(type) class H##type;
 FOR_EACH_INSTRUCTION(FORWARD_DECLARATION)
@@ -580,7 +622,7 @@ class HIntConstant : public HTemplateInstruction<0> {
 
 class HInvoke : public HInstruction {
  public:
-  HInvoke(ArenaAllocator* arena, uint32_t number_of_arguments, int32_t dex_pc)
+  HInvoke(ArenaAllocator* arena, uint32_t number_of_arguments, uint32_t dex_pc)
     : inputs_(arena, number_of_arguments),
       dex_pc_(dex_pc) {
     inputs_.SetSize(number_of_arguments);
@@ -589,11 +631,15 @@ class HInvoke : public HInstruction {
   virtual intptr_t InputCount() const { return inputs_.Size(); }
   virtual HInstruction* InputAt(intptr_t i) const { return inputs_.Get(i); }
 
-  int32_t GetDexPc() const { return dex_pc_; }
+  void SetArgumentAt(size_t index, HInstruction* argument) {
+    inputs_.Put(index, argument);
+  }
+
+  uint32_t GetDexPc() const { return dex_pc_; }
 
  protected:
   GrowableArray<HInstruction*> inputs_;
-  const int32_t dex_pc_;
+  const uint32_t dex_pc_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(HInvoke);
@@ -601,17 +647,54 @@ class HInvoke : public HInstruction {
 
 class HInvokeStatic : public HInvoke {
  public:
-  HInvokeStatic(ArenaAllocator* arena, uint32_t number_of_arguments, int32_t dex_pc, int32_t index_in_dex_cache)
-      : HInvoke(arena, number_of_arguments, dex_pc), index_in_dex_cache_(index_in_dex_cache) { }
+  HInvokeStatic(ArenaAllocator* arena,
+                uint32_t number_of_arguments,
+                uint32_t dex_pc,
+                uint32_t index_in_dex_cache)
+      : HInvoke(arena, number_of_arguments, dex_pc), index_in_dex_cache_(index_in_dex_cache) {}
 
   uint32_t GetIndexInDexCache() const { return index_in_dex_cache_; }
 
   DECLARE_INSTRUCTION(InvokeStatic)
 
  private:
-  uint32_t index_in_dex_cache_;
+  const uint32_t index_in_dex_cache_;
 
   DISALLOW_COPY_AND_ASSIGN(HInvokeStatic);
+};
+
+class HNewInstance : public HTemplateInstruction<0> {
+ public:
+  HNewInstance(uint32_t dex_pc, uint16_t type_index) : dex_pc_(dex_pc), type_index_(type_index) {}
+
+  uint32_t GetDexPc() const { return dex_pc_; }
+  uint16_t GetTypeIndex() const { return type_index_; }
+
+  DECLARE_INSTRUCTION(NewInstance)
+
+ private:
+  const uint32_t dex_pc_;
+  const uint16_t type_index_;
+
+  DISALLOW_COPY_AND_ASSIGN(HNewInstance);
+};
+
+// HPushArgument nodes are inserted after the evaluation of an argument
+// of a call. Their mere purpose is to ease the code generator's work.
+class HPushArgument : public HTemplateInstruction<1> {
+ public:
+  HPushArgument(HInstruction* argument, uint8_t argument_index) : argument_index_(argument_index) {
+    SetRawInputAt(0, argument);
+  }
+
+  uint8_t GetArgumentIndex() const { return argument_index_; }
+
+  DECLARE_INSTRUCTION(PushArgument)
+
+ private:
+  const uint8_t argument_index_;
+
+  DISALLOW_COPY_AND_ASSIGN(HPushArgument);
 };
 
 class HAdd : public HBinaryOperation {
@@ -625,6 +708,49 @@ class HAdd : public HBinaryOperation {
 
  private:
   DISALLOW_COPY_AND_ASSIGN(HAdd);
+};
+
+class HSub : public HBinaryOperation {
+ public:
+  HSub(Primitive::Type result_type, HInstruction* left, HInstruction* right)
+      : HBinaryOperation(result_type, left, right) {}
+
+  virtual bool IsCommutative() { return false; }
+
+  DECLARE_INSTRUCTION(Sub);
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(HSub);
+};
+
+// The value of a parameter in this method. Its location depends on
+// the calling convention.
+class HParameterValue : public HTemplateInstruction<0> {
+ public:
+  explicit HParameterValue(uint8_t index) : index_(index) {}
+
+  uint8_t GetIndex() const { return index_; }
+
+  DECLARE_INSTRUCTION(ParameterValue);
+
+ private:
+  // The index of this parameter in the parameters list. Must be less
+  // than HGraph::number_of_in_vregs_;
+  const uint8_t index_;
+
+  DISALLOW_COPY_AND_ASSIGN(HParameterValue);
+};
+
+class HNot : public HTemplateInstruction<1> {
+ public:
+  explicit HNot(HInstruction* input) {
+    SetRawInputAt(0, input);
+  }
+
+  DECLARE_INSTRUCTION(Not);
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(HNot);
 };
 
 class HGraphVisitor : public ValueObject {

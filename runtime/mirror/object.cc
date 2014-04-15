@@ -39,6 +39,32 @@
 namespace art {
 namespace mirror {
 
+class CopyReferenceFieldsWithReadBarrierVisitor {
+ public:
+  explicit CopyReferenceFieldsWithReadBarrierVisitor(Object* dest_obj)
+      : dest_obj_(dest_obj) {}
+
+  void operator()(Object* obj, MemberOffset offset, bool /* is_static */) const
+      ALWAYS_INLINE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    // GetFieldObject() contains a RB.
+    Object* ref = obj->GetFieldObject<Object>(offset, false);
+    // No WB here as a large object space does not have a card table
+    // coverage. Instead, cards will be marked separately.
+    dest_obj_->SetFieldObjectWithoutWriteBarrier<false, false>(offset, ref, false);
+  }
+
+  void operator()(mirror::Class* klass, mirror::Reference* ref) const
+      ALWAYS_INLINE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    // Copy java.lang.ref.Reference.referent which isn't visited in
+    // Object::VisitReferences().
+    DCHECK(klass->IsReferenceClass());
+    this->operator()(ref, mirror::Reference::ReferentOffset(), false);
+  }
+
+ private:
+  Object* const dest_obj_;
+};
+
 static Object* CopyObject(Thread* self, mirror::Object* dest, mirror::Object* src, size_t num_bytes)
     SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
   // Copy instance data.  We assume memcpy copies by words.
@@ -47,6 +73,13 @@ static Object* CopyObject(Thread* self, mirror::Object* dest, mirror::Object* sr
   byte* dst_bytes = reinterpret_cast<byte*>(dest);
   size_t offset = sizeof(Object);
   memcpy(dst_bytes + offset, src_bytes + offset, num_bytes - offset);
+  if (kUseBakerOrBrooksReadBarrier) {
+    // We need a RB here. After the memcpy that covers the whole
+    // object above, copy references fields one by one again with a
+    // RB. TODO: Optimize this later?
+    CopyReferenceFieldsWithReadBarrierVisitor visitor(dest);
+    src->VisitReferences<true>(visitor, visitor);
+  }
   gc::Heap* heap = Runtime::Current()->GetHeap();
   // Perform write barriers on copied object references.
   Class* c = src->GetClass();
@@ -66,6 +99,26 @@ static Object* CopyObject(Thread* self, mirror::Object* dest, mirror::Object* sr
   return dest;
 }
 
+// An allocation pre-fence visitor that copies the object.
+class CopyObjectVisitor {
+ public:
+  explicit CopyObjectVisitor(Thread* self, SirtRef<Object>* orig, size_t num_bytes)
+      : self_(self), orig_(orig), num_bytes_(num_bytes) {
+  }
+
+  void operator()(Object* obj, size_t usable_size) const
+      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    UNUSED(usable_size);
+    CopyObject(self_, obj, orig_->get(), num_bytes_);
+  }
+
+ private:
+  Thread* const self_;
+  SirtRef<Object>* const orig_;
+  const size_t num_bytes_;
+  DISALLOW_COPY_AND_ASSIGN(CopyObjectVisitor);
+};
+
 Object* Object::Clone(Thread* self) {
   CHECK(!IsClass()) << "Can't clone classes.";
   // Object::SizeOf gets the right size even if we're an array. Using c->AllocObject() here would
@@ -74,13 +127,11 @@ Object* Object::Clone(Thread* self) {
   size_t num_bytes = SizeOf();
   SirtRef<Object> this_object(self, this);
   Object* copy;
+  CopyObjectVisitor visitor(self, &this_object, num_bytes);
   if (heap->IsMovableObject(this)) {
-    copy = heap->AllocObject<true>(self, GetClass(), num_bytes);
+    copy = heap->AllocObject<true>(self, GetClass(), num_bytes, visitor);
   } else {
-    copy = heap->AllocNonMovableObject<true>(self, GetClass(), num_bytes);
-  }
-  if (LIKELY(copy != nullptr)) {
-    return CopyObject(self, copy, this_object.get(), num_bytes);
+    copy = heap->AllocNonMovableObject<true>(self, GetClass(), num_bytes, visitor);
   }
   return copy;
 }

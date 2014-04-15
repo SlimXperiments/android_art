@@ -33,8 +33,8 @@ void CodeGenerator::Compile(CodeAllocator* allocator) {
   const GrowableArray<HBasicBlock*>* blocks = GetGraph()->GetBlocks();
   DCHECK(blocks->Get(0) == GetGraph()->GetEntryBlock());
   DCHECK(GoesToNextBlock(GetGraph()->GetEntryBlock(), blocks->Get(1)));
-  CompileEntryBlock();
-  for (size_t i = 1; i < blocks->Size(); i++) {
+  GenerateFrameEntry();
+  for (size_t i = 0; i < blocks->Size(); i++) {
     CompileBlock(blocks->Get(i));
   }
   size_t code_size = GetAssembler()->CodeSize();
@@ -43,39 +43,15 @@ void CodeGenerator::Compile(CodeAllocator* allocator) {
   GetAssembler()->FinalizeInstructions(code);
 }
 
-void CodeGenerator::CompileEntryBlock() {
-  HGraphVisitor* location_builder = GetLocationBuilder();
-  HGraphVisitor* instruction_visitor = GetInstructionVisitor();
-  // The entry block contains all locals for this method. By visiting the entry block,
-  // we're computing the required frame size.
-  for (HInstructionIterator it(GetGraph()->GetEntryBlock()); !it.Done(); it.Advance()) {
-    HInstruction* current = it.Current();
-    // Instructions in the entry block should not generate code.
-    if (kIsDebugBuild) {
-      current->Accept(location_builder);
-      DCHECK(current->GetLocations() == nullptr);
-    }
-    current->Accept(instruction_visitor);
-  }
-  GenerateFrameEntry();
-}
-
 void CodeGenerator::CompileBlock(HBasicBlock* block) {
   Bind(GetLabelOf(block));
   HGraphVisitor* location_builder = GetLocationBuilder();
   HGraphVisitor* instruction_visitor = GetInstructionVisitor();
   for (HInstructionIterator it(block); !it.Done(); it.Advance()) {
-    // For each instruction, we emulate a stack-based machine, where the inputs are popped from
-    // the runtime stack, and the result is pushed on the stack. We currently can do this because
-    // we do not perform any code motion, and the Dex format does not reference individual
-    // instructions but uses registers instead (our equivalent of HLocal).
     HInstruction* current = it.Current();
     current->Accept(location_builder);
     InitLocations(current);
     current->Accept(instruction_visitor);
-    if (current->GetLocations() != nullptr && current->GetLocations()->Out().IsValid()) {
-      Push(current, current->GetLocations()->Out());
-    }
   }
 }
 
@@ -85,7 +61,7 @@ void CodeGenerator::InitLocations(HInstruction* instruction) {
     Location location = instruction->GetLocations()->InAt(i);
     if (location.IsValid()) {
       // Move the input to the desired location.
-      Move(instruction->InputAt(i), location);
+      Move(instruction->InputAt(i), location, instruction);
     }
   }
 }
@@ -110,6 +86,9 @@ CodeGenerator* CodeGenerator::Create(ArenaAllocator* allocator,
     case kMips:
       return nullptr;
     case kX86: {
+      return new (allocator) x86::CodeGeneratorX86(graph);
+    }
+    case kX86_64: {
       return new (allocator) x86::CodeGeneratorX86(graph);
     }
     default:
@@ -204,11 +183,10 @@ void CodeGenerator::BuildMappingTable(std::vector<uint8_t>* data) const {
 
 void CodeGenerator::BuildVMapTable(std::vector<uint8_t>* data) const {
   Leb128EncodingVector vmap_encoder;
-  size_t size = 1 + 1 /* marker */ + 0;
+  // We currently don't use callee-saved registers.
+  size_t size = 0 + 1 /* marker */ + 0;
   vmap_encoder.Reserve(size + 1u);  // All values are likely to be one byte in ULEB128 (<128).
   vmap_encoder.PushBackUnsigned(size);
-  // We're currently always saving the frame pointer, so set it in the table as a temporary.
-  vmap_encoder.PushBackUnsigned(kVRegTempBaseReg + VmapTable::kEntryAdjustment);
   vmap_encoder.PushBackUnsigned(VmapTable::kAdjustedFpMarker);
 
   *data = vmap_encoder.GetData();

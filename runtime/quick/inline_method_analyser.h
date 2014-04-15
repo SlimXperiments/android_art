@@ -21,6 +21,7 @@
 #include "base/mutex.h"
 #include "dex_file.h"
 #include "dex_instruction.h"
+#include "method_reference.h"
 
 /*
  * NOTE: This code is part of the quick compiler. It lives in the runtime
@@ -98,10 +99,10 @@ struct InlineIGetIPutData {
   // opcode-Instruction::IPUT for IPUTs. This is because the runtime
   // doesn't know the OpSize enumeration.
   uint16_t op_variant : 3;
+  uint16_t method_is_static : 1;
   uint16_t object_arg : 4;
   uint16_t src_arg : 4;  // iput only
-  uint16_t method_is_static : 1;
-  uint16_t reserved : 4;
+  uint16_t return_arg_plus1 : 4;  // iput only, method argument to return + 1, 0 = return void.
   uint16_t field_idx;
   uint32_t is_volatile : 1;
   uint32_t field_offset : 31;
@@ -155,6 +156,9 @@ class InlineMethodAnalyser {
   static constexpr uint16_t IPutVariant(Instruction::Code opcode) {
     return opcode - Instruction::IPUT;
   }
+
+  // Determines whether the method is a synthetic accessor (method name starts with "access$").
+  static bool IsSyntheticAccessor(MethodReference ref);
 
  private:
   static bool AnalyseReturnMethod(const DexFile::CodeItem* code_item, InlineMethod* result);

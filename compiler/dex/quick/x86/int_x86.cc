@@ -629,7 +629,7 @@ RegLocation X86Mir2Lir::GenDivRem(RegLocation rl_dest, RegLocation rl_src1,
 
   if (check_zero) {
     // Handle division by zero case.
-    GenImmedCheck(kCondEq, rs_r1, 0, kThrowDivZero);
+    AddDivZeroSlowPath(kCondEq, rs_r1, 0);
   }
 
   // Have to catch 0x80000000/-1 case, or we will get an exception!
@@ -663,7 +663,7 @@ RegLocation X86Mir2Lir::GenDivRem(RegLocation rl_dest, RegLocation rl_src1,
 }
 
 bool X86Mir2Lir::GenInlinedMinMaxInt(CallInfo* info, bool is_min) {
-  DCHECK_EQ(cu_->instruction_set, kX86);
+  DCHECK(cu_->instruction_set == kX86 || cu_->instruction_set == kX86_64);
 
   // Get the two arguments to the invoke and place them in GP registers.
   RegLocation rl_src1 = info->args[0];
@@ -751,7 +751,7 @@ static bool IsInReg(X86Mir2Lir *pMir2Lir, const RegLocation &rl, RegStorage reg)
 }
 
 bool X86Mir2Lir::GenInlinedCas(CallInfo* info, bool is_long, bool is_object) {
-  DCHECK_EQ(cu_->instruction_set, kX86);
+  DCHECK(cu_->instruction_set == kX86 || cu_->instruction_set == kX86_64);
   // Unused - RegLocation rl_src_unsafe = info->args[0];
   RegLocation rl_src_obj = info->args[1];  // Object - known non-null
   RegLocation rl_src_offset = info->args[2];  // long low
@@ -885,7 +885,7 @@ void X86Mir2Lir::GenDivZeroCheck(RegStorage reg) {
   OpRegRegReg(kOpOr, t_reg, reg.GetLow(), reg.GetHigh());
 
   // In case of zero, throw ArithmeticException.
-  GenCheck(kCondEq, kThrowDivZero);
+  AddDivZeroSlowPath(kCondEq);
 
   // The temp is no longer needed so free it at this time.
   FreeTemp(t_reg);
@@ -917,6 +917,10 @@ bool X86Mir2Lir::EasyMultiply(RegLocation rl_src, RegLocation rl_dest, int lit) 
 LIR* X86Mir2Lir::OpIT(ConditionCode cond, const char* guide) {
   LOG(FATAL) << "Unexpected use of OpIT in x86";
   return NULL;
+}
+
+void X86Mir2Lir::OpEndIT(LIR* it) {
+  LOG(FATAL) << "Unexpected use of OpEndIT in x86";
 }
 
 void X86Mir2Lir::GenImulRegImm(RegStorage dest, RegStorage src, int val) {

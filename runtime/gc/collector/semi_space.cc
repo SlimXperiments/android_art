@@ -63,8 +63,9 @@ namespace gc {
 namespace collector {
 
 static constexpr bool kProtectFromSpace = true;
-static constexpr bool kClearFromSpace = true;
 static constexpr bool kStoreStackTraces = false;
+static constexpr bool kUseBytesPromoted = true;
+static constexpr size_t kBytesPromotedThreshold = 4 * MB;
 
 void SemiSpace::BindBitmaps() {
   timings_.StartSplit("BindBitmaps");
@@ -102,8 +103,10 @@ SemiSpace::SemiSpace(Heap* heap, bool generational, const std::string& name_pref
       generational_(generational),
       last_gc_to_space_end_(nullptr),
       bytes_promoted_(0),
+      bytes_promoted_since_last_whole_heap_collection_(0),
       whole_heap_collection_(true),
-      whole_heap_collection_interval_counter_(0) {
+      whole_heap_collection_interval_counter_(0),
+      collector_name_(name_) {
 }
 
 void SemiSpace::InitializePhase() {
@@ -118,6 +121,7 @@ void SemiSpace::InitializePhase() {
   // Do any pre GC verification.
   timings_.NewSplit("PreGcVerification");
   heap_->PreGcVerification(this);
+  CHECK(from_space_->CanMoveObjects()) << "Attempting to move from " << *from_space_;
   // Set the initial bitmap.
   to_space_live_bitmap_ = to_space_->GetLiveBitmap();
 }
@@ -150,20 +154,34 @@ void SemiSpace::MarkingPhase() {
       // collection, collect the whole heap (and reset the interval
       // counter to be consistent.)
       whole_heap_collection_ = true;
-      whole_heap_collection_interval_counter_ = 0;
+      if (!kUseBytesPromoted) {
+        whole_heap_collection_interval_counter_ = 0;
+      }
     }
     if (whole_heap_collection_) {
       VLOG(heap) << "Whole heap collection";
+      name_ = collector_name_ + " whole";
     } else {
       VLOG(heap) << "Bump pointer space only collection";
+      name_ = collector_name_ + " bps";
     }
   }
+
+  if (!clear_soft_references_) {
+    if (!generational_) {
+      // If non-generational, always clear soft references.
+      clear_soft_references_ = true;
+    } else {
+      // If generational, clear soft references if a whole heap collection.
+      if (whole_heap_collection_) {
+        clear_soft_references_ = true;
+      }
+    }
+  }
+
   Locks::mutator_lock_->AssertExclusiveHeld(self_);
 
   TimingLogger::ScopedSplit split("MarkingPhase", &timings_);
-  // Need to do this with mutators paused so that somebody doesn't accidentally allocate into the
-  // wrong space.
-  heap_->SwapSemiSpaces();
   if (generational_) {
     // If last_gc_to_space_end_ is out of the bounds of the from-space
     // (the to-space from last GC), then point it to the beginning of
@@ -315,7 +333,7 @@ void SemiSpace::MarkReachableObjects() {
           // remain in the space, that is, the remembered set (and the
           // card table) didn't miss any from-space references in the
           // space.
-          accounting::SpaceBitmap* live_bitmap = space->GetLiveBitmap();
+          accounting::ContinuousSpaceBitmap* live_bitmap = space->GetLiveBitmap();
           SemiSpaceVerifyNoFromSpaceReferencesObjectVisitor visitor(this);
           live_bitmap->VisitMarkedRange(reinterpret_cast<uintptr_t>(space->Begin()),
                                         reinterpret_cast<uintptr_t>(space->End()),
@@ -323,7 +341,7 @@ void SemiSpace::MarkReachableObjects() {
         }
       } else {
         DCHECK(rem_set == nullptr);
-        accounting::SpaceBitmap* live_bitmap = space->GetLiveBitmap();
+        accounting::ContinuousSpaceBitmap* live_bitmap = space->GetLiveBitmap();
         SemiSpaceScanObjectVisitor visitor(this);
         live_bitmap->VisitMarkedRange(reinterpret_cast<uintptr_t>(space->Begin()),
                                       reinterpret_cast<uintptr_t>(space->End()),
@@ -375,10 +393,10 @@ void SemiSpace::ReclaimPhase() {
   // Note: Freed bytes can be negative if we copy form a compacted space to a free-list backed
   // space.
   heap_->RecordFree(freed_objects, freed_bytes);
+
   timings_.StartSplit("PreSweepingGcVerification");
   heap_->PreSweepingGcVerification(this);
   timings_.EndSplit();
-
   {
     WriterMutexLock mu(self_, *Locks::heap_bitmap_lock_);
     // Reclaim unmarked objects.
@@ -393,11 +411,9 @@ void SemiSpace::ReclaimPhase() {
     TimingLogger::ScopedSplit split("UnBindBitmaps", &timings_);
     GetHeap()->UnBindBitmaps();
   }
-  if (kClearFromSpace) {
-    // Release the memory used by the from space.
-    from_space_->Clear();
-  }
-  from_space_->Reset();
+  // TODO: Do this before doing verification since the from space may have objects which weren't
+  // moved and point to dead objects.
+  from_space_->Clear();
   // Protect the from space.
   VLOG(heap) << "Protecting space " << *from_space_;
   if (kProtectFromSpace) {
@@ -519,9 +535,9 @@ mirror::Object* SemiSpace::MarkNonForwardedObject(mirror::Object* obj) {
       // space.
       GetHeap()->WriteBarrierEveryFieldOf(forward_address);
       // Handle the bitmaps marking.
-      accounting::SpaceBitmap* live_bitmap = promo_dest_space->GetLiveBitmap();
+      accounting::ContinuousSpaceBitmap* live_bitmap = promo_dest_space->GetLiveBitmap();
       DCHECK(live_bitmap != nullptr);
-      accounting::SpaceBitmap* mark_bitmap = promo_dest_space->GetMarkBitmap();
+      accounting::ContinuousSpaceBitmap* mark_bitmap = promo_dest_space->GetMarkBitmap();
       DCHECK(mark_bitmap != nullptr);
       DCHECK(!live_bitmap->Test(forward_address));
       if (!whole_heap_collection_) {
@@ -694,8 +710,8 @@ void SemiSpace::ScanObject(Object* obj) {
 
 // Scan anything that's on the mark stack.
 void SemiSpace::ProcessMarkStack() {
-  space::MallocSpace* promo_dest_space = NULL;
-  accounting::SpaceBitmap* live_bitmap = NULL;
+  space::MallocSpace* promo_dest_space = nullptr;
+  accounting::ContinuousSpaceBitmap* live_bitmap = nullptr;
   if (generational_ && !whole_heap_collection_) {
     // If a bump pointer space only collection (and the promotion is
     // enabled,) we delay the live-bitmap marking of promoted objects
@@ -703,7 +719,7 @@ void SemiSpace::ProcessMarkStack() {
     promo_dest_space = GetHeap()->GetPrimaryFreeListSpace();
     live_bitmap = promo_dest_space->GetLiveBitmap();
     DCHECK(live_bitmap != nullptr);
-    accounting::SpaceBitmap* mark_bitmap = promo_dest_space->GetMarkBitmap();
+    accounting::ContinuousSpaceBitmap* mark_bitmap = promo_dest_space->GetMarkBitmap();
     DCHECK(mark_bitmap != nullptr);
     DCHECK_EQ(live_bitmap, mark_bitmap);
   }
@@ -762,18 +778,34 @@ void SemiSpace::FinishPhase() {
   if (generational_) {
     // Decide whether to do a whole heap collection or a bump pointer
     // only space collection at the next collection by updating
-    // whole_heap_collection. Enable whole_heap_collection once every
-    // kDefaultWholeHeapCollectionInterval collections.
+    // whole_heap_collection.
     if (!whole_heap_collection_) {
-      --whole_heap_collection_interval_counter_;
-      DCHECK_GE(whole_heap_collection_interval_counter_, 0);
-      if (whole_heap_collection_interval_counter_ == 0) {
-        whole_heap_collection_ = true;
+      if (!kUseBytesPromoted) {
+        // Enable whole_heap_collection once every
+        // kDefaultWholeHeapCollectionInterval collections.
+        --whole_heap_collection_interval_counter_;
+        DCHECK_GE(whole_heap_collection_interval_counter_, 0);
+        if (whole_heap_collection_interval_counter_ == 0) {
+          whole_heap_collection_ = true;
+        }
+      } else {
+        // Enable whole_heap_collection if the bytes promoted since
+        // the last whole heap collection exceeds a threshold.
+        bytes_promoted_since_last_whole_heap_collection_ += bytes_promoted_;
+        if (bytes_promoted_since_last_whole_heap_collection_ >= kBytesPromotedThreshold) {
+          whole_heap_collection_ = true;
+        }
       }
     } else {
-      DCHECK_EQ(whole_heap_collection_interval_counter_, 0);
-      whole_heap_collection_interval_counter_ = kDefaultWholeHeapCollectionInterval;
-      whole_heap_collection_ = false;
+      if (!kUseBytesPromoted) {
+        DCHECK_EQ(whole_heap_collection_interval_counter_, 0);
+        whole_heap_collection_interval_counter_ = kDefaultWholeHeapCollectionInterval;
+        whole_heap_collection_ = false;
+      } else {
+        // Reset it.
+        bytes_promoted_since_last_whole_heap_collection_ = bytes_promoted_;
+        whole_heap_collection_ = false;
+      }
     }
   }
   // Clear all of the spaces' mark bitmaps.

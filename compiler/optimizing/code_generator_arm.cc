@@ -26,40 +26,65 @@
 namespace art {
 namespace arm {
 
+static constexpr int kNumberOfPushedRegistersAtEntry = 1;
+static constexpr int kCurrentMethodStackOffset = 0;
+
+InstructionCodeGeneratorARM::InstructionCodeGeneratorARM(HGraph* graph, CodeGeneratorARM* codegen)
+      : HGraphVisitor(graph),
+        assembler_(codegen->GetAssembler()),
+        codegen_(codegen) {}
+
 void CodeGeneratorARM::GenerateFrameEntry() {
   core_spill_mask_ |= (1 << LR);
-  // We're currently always using FP, which is callee-saved in Quick.
-  core_spill_mask_ |= (1 << FP);
+  __ PushList((1 << LR));
 
-  __ PushList((1 << FP) | (1 << LR));
-  __ mov(FP, ShifterOperand(SP));
-
-  // Add the current ART method to the frame size, the return pc, and FP.
-  SetFrameSize(RoundUp(GetFrameSize() + 3 * kWordSize, kStackAlignment));
-  // PC and FP have already been pushed on the stack.
-  __ AddConstant(SP, -(GetFrameSize() - 2 * kWordSize));
+  // Add the current ART method to the frame size, the return PC, and the filler.
+  SetFrameSize(RoundUp((
+      GetGraph()->GetMaximumNumberOfOutVRegs() + GetGraph()->GetNumberOfVRegs() + 3) * kArmWordSize,
+      kStackAlignment));
+  // The return PC has already been pushed on the stack.
+  __ AddConstant(SP, -(GetFrameSize() - kNumberOfPushedRegistersAtEntry * kArmWordSize));
   __ str(R0, Address(SP, 0));
 }
 
 void CodeGeneratorARM::GenerateFrameExit() {
-  __ mov(SP, ShifterOperand(FP));
-  __ PopList((1 << FP) | (1 << PC));
+  __ AddConstant(SP, GetFrameSize() - kNumberOfPushedRegistersAtEntry * kArmWordSize);
+  __ PopList((1 << PC));
 }
 
 void CodeGeneratorARM::Bind(Label* label) {
   __ Bind(label);
 }
 
-void CodeGeneratorARM::Push(HInstruction* instruction, Location location) {
-  __ Push(location.reg<Register>());
+int32_t CodeGeneratorARM::GetStackSlot(HLocal* local) const {
+  uint16_t reg_number = local->GetRegNumber();
+  uint16_t number_of_vregs = GetGraph()->GetNumberOfVRegs();
+  uint16_t number_of_in_vregs = GetGraph()->GetNumberOfInVRegs();
+  if (reg_number >= number_of_vregs - number_of_in_vregs) {
+    // Local is a parameter of the method. It is stored in the caller's frame.
+    return GetFrameSize() + kArmWordSize  // ART method
+                          + (reg_number - number_of_vregs + number_of_in_vregs) * kArmWordSize;
+  } else {
+    // Local is a temporary in this method. It is stored in this method's frame.
+    return GetFrameSize() - (kNumberOfPushedRegistersAtEntry * kArmWordSize)
+                          - kArmWordSize  // filler.
+                          - (number_of_vregs * kArmWordSize)
+                          + (reg_number * kArmWordSize);
+  }
 }
 
-void CodeGeneratorARM::Move(HInstruction* instruction, Location location) {
-  HIntConstant* constant = instruction->AsIntConstant();
-  if (constant != nullptr) {
-    __ LoadImmediate(location.reg<Register>(), constant->GetValue());
+void CodeGeneratorARM::Move(HInstruction* instruction, Location location, HInstruction* move_for) {
+  if (instruction->AsIntConstant() != nullptr) {
+    __ LoadImmediate(location.reg<Register>(), instruction->AsIntConstant()->GetValue());
+  } else if (instruction->AsLoadLocal() != nullptr) {
+    __ LoadFromOffset(kLoadWord, location.reg<Register>(),
+                      SP, GetStackSlot(instruction->AsLoadLocal()->GetLocal()));
   } else {
-    __ Pop(location.reg<Register>());
+    // This can currently only happen when the instruction that requests the move
+    // is the next to be compiled.
+    DCHECK_EQ(instruction->GetNext(), move_for);
+    __ mov(location.reg<Register>(),
+           ShifterOperand(instruction->GetLocations()->Out().reg<Register>()));
   }
 }
 
@@ -124,24 +149,14 @@ void LocationsBuilderARM::VisitLocal(HLocal* local) {
 
 void InstructionCodeGeneratorARM::VisitLocal(HLocal* local) {
   DCHECK_EQ(local->GetBlock(), GetGraph()->GetEntryBlock());
-  codegen_->SetFrameSize(codegen_->GetFrameSize() + kWordSize);
 }
 
 void LocationsBuilderARM::VisitLoadLocal(HLoadLocal* load) {
-  LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(load);
-  locations->SetOut(Location(R0));
-  load->SetLocations(locations);
-}
-
-static int32_t GetStackSlot(HLocal* local) {
-  // We are currently using FP to access locals, so the offset must be negative.
-  return (local->GetRegNumber() + 1) * -kWordSize;
+  load->SetLocations(nullptr);
 }
 
 void InstructionCodeGeneratorARM::VisitLoadLocal(HLoadLocal* load) {
-  LocationSummary* locations = load->GetLocations();
-  __ LoadFromOffset(kLoadWord, locations->Out().reg<Register>(),
-                    FP, GetStackSlot(load->GetLocal()));
+  // Nothing to do, this is driven by the code generator.
 }
 
 void LocationsBuilderARM::VisitStoreLocal(HStoreLocal* store) {
@@ -153,7 +168,7 @@ void LocationsBuilderARM::VisitStoreLocal(HStoreLocal* store) {
 void InstructionCodeGeneratorARM::VisitStoreLocal(HStoreLocal* store) {
   LocationSummary* locations = store->GetLocations();
   __ StoreToOffset(kStoreWord, locations->InAt(1).reg<Register>(),
-                   FP, GetStackSlot(store->GetLocal()));
+                   SP, codegen_->GetStackSlot(store->GetLocal()));
 }
 
 void LocationsBuilderARM::VisitIntConstant(HIntConstant* constant) {
@@ -183,21 +198,58 @@ void InstructionCodeGeneratorARM::VisitReturn(HReturn* ret) {
   codegen_->GenerateFrameExit();
 }
 
+static constexpr Register kParameterCoreRegisters[] = { R1, R2, R3 };
+static constexpr size_t kParameterCoreRegistersLength = arraysize(kParameterCoreRegisters);
+
+class InvokeDexCallingConvention : public CallingConvention<Register> {
+ public:
+  InvokeDexCallingConvention()
+      : CallingConvention(kParameterCoreRegisters, kParameterCoreRegistersLength) {}
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(InvokeDexCallingConvention);
+};
+
+void LocationsBuilderARM::VisitPushArgument(HPushArgument* argument) {
+  LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(argument);
+  InvokeDexCallingConvention calling_convention;
+  if (argument->GetArgumentIndex() < calling_convention.GetNumberOfRegisters()) {
+    Location location = Location(calling_convention.GetRegisterAt(argument->GetArgumentIndex()));
+    locations->SetInAt(0, location);
+    locations->SetOut(location);
+  } else {
+    locations->SetInAt(0, Location(R0));
+  }
+  argument->SetLocations(locations);
+}
+
+void InstructionCodeGeneratorARM::VisitPushArgument(HPushArgument* argument) {
+  uint8_t argument_index = argument->GetArgumentIndex();
+  InvokeDexCallingConvention calling_convention;
+  size_t parameter_registers = calling_convention.GetNumberOfRegisters();
+  LocationSummary* locations = argument->GetLocations();
+  if (argument_index >= parameter_registers) {
+    uint8_t offset = calling_convention.GetStackOffsetOf(argument_index);
+    __ StoreToOffset(kStoreWord, locations->InAt(0).reg<Register>(), SP, offset);
+  } else {
+    DCHECK_EQ(locations->Out().reg<Register>(), locations->InAt(0).reg<Register>());
+  }
+}
+
 void LocationsBuilderARM::VisitInvokeStatic(HInvokeStatic* invoke) {
   LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(invoke);
-  CHECK_EQ(invoke->InputCount(), 0);
   locations->AddTemp(Location(R0));
   invoke->SetLocations(locations);
 }
 
 void InstructionCodeGeneratorARM::LoadCurrentMethod(Register reg) {
-  __ ldr(reg, Address(SP, 0));
+  __ ldr(reg, Address(SP, kCurrentMethodStackOffset));
 }
 
 void InstructionCodeGeneratorARM::VisitInvokeStatic(HInvokeStatic* invoke) {
   Register temp = invoke->GetLocations()->GetTemp(0).reg<Register>();
   size_t index_in_cache = mirror::Array::DataOffset(sizeof(mirror::Object*)).Int32Value() +
-      invoke->GetIndexInDexCache() * kWordSize;
+      invoke->GetIndexInDexCache() * kArmWordSize;
 
   // TODO: Implement all kinds of calls:
   // 1) boot -> boot
@@ -247,6 +299,100 @@ void InstructionCodeGeneratorARM::VisitAdd(HAdd* add) {
     default:
       LOG(FATAL) << "Unimplemented";
   }
+}
+
+void LocationsBuilderARM::VisitSub(HSub* sub) {
+  LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(sub);
+  switch (sub->GetResultType()) {
+    case Primitive::kPrimInt: {
+      locations->SetInAt(0, Location(R0));
+      locations->SetInAt(1, Location(R1));
+      locations->SetOut(Location(R0));
+      break;
+    }
+    default:
+      LOG(FATAL) << "Unimplemented";
+  }
+  sub->SetLocations(locations);
+}
+
+void InstructionCodeGeneratorARM::VisitSub(HSub* sub) {
+  LocationSummary* locations = sub->GetLocations();
+  switch (sub->GetResultType()) {
+    case Primitive::kPrimInt:
+      __ sub(locations->Out().reg<Register>(),
+             locations->InAt(0).reg<Register>(),
+             ShifterOperand(locations->InAt(1).reg<Register>()));
+      break;
+    default:
+      LOG(FATAL) << "Unimplemented";
+  }
+}
+
+static constexpr Register kRuntimeParameterCoreRegisters[] = { R0, R1 };
+static constexpr size_t kRuntimeParameterCoreRegistersLength =
+    arraysize(kRuntimeParameterCoreRegisters);
+
+class InvokeRuntimeCallingConvention : public CallingConvention<Register> {
+ public:
+  InvokeRuntimeCallingConvention()
+      : CallingConvention(kRuntimeParameterCoreRegisters,
+                          kRuntimeParameterCoreRegistersLength) {}
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(InvokeRuntimeCallingConvention);
+};
+
+void LocationsBuilderARM::VisitNewInstance(HNewInstance* instruction) {
+  LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(instruction);
+  locations->SetOut(Location(R0));
+  instruction->SetLocations(locations);
+}
+
+void InstructionCodeGeneratorARM::VisitNewInstance(HNewInstance* instruction) {
+  InvokeRuntimeCallingConvention calling_convention;
+  LoadCurrentMethod(calling_convention.GetRegisterAt(1));
+  __ LoadImmediate(calling_convention.GetRegisterAt(0), instruction->GetTypeIndex());
+
+  int32_t offset = QUICK_ENTRYPOINT_OFFSET(kArmWordSize, pAllocObjectWithAccessCheck).Int32Value();
+  __ ldr(LR, Address(TR, offset));
+  __ blx(LR);
+
+  codegen_->RecordPcInfo(instruction->GetDexPc());
+}
+
+void LocationsBuilderARM::VisitParameterValue(HParameterValue* instruction) {
+  LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(instruction);
+  InvokeDexCallingConvention calling_convention;
+  uint32_t argument_index = instruction->GetIndex();
+  if (argument_index < calling_convention.GetNumberOfRegisters()) {
+    locations->SetOut(Location(calling_convention.GetRegisterAt(argument_index)));
+  } else {
+    locations->SetOut(Location(R0));
+  }
+  instruction->SetLocations(locations);
+}
+
+void InstructionCodeGeneratorARM::VisitParameterValue(HParameterValue* instruction) {
+  LocationSummary* locations = instruction->GetLocations();
+  InvokeDexCallingConvention calling_convention;
+  uint8_t argument_index = instruction->GetIndex();
+  if (argument_index >= calling_convention.GetNumberOfRegisters()) {
+    uint8_t offset = calling_convention.GetStackOffsetOf(argument_index);
+    __ ldr(locations->Out().reg<Register>(), Address(SP, offset + codegen_->GetFrameSize()));
+  }
+}
+
+void LocationsBuilderARM::VisitNot(HNot* instruction) {
+  LocationSummary* locations = new (GetGraph()->GetArena()) LocationSummary(instruction);
+  locations->SetInAt(0, Location(R0));
+  locations->SetOut(Location(R0));
+  instruction->SetLocations(locations);
+}
+
+void InstructionCodeGeneratorARM::VisitNot(HNot* instruction) {
+  LocationSummary* locations = instruction->GetLocations();
+  __ eor(locations->Out().reg<Register>(), locations->InAt(0).reg<Register>(), ShifterOperand(1));
 }
 
 }  // namespace arm

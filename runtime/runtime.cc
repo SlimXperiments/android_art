@@ -121,6 +121,7 @@ Runtime::Runtime()
       profile_duration_s_(0),
       profile_interval_us_(0),
       profile_backoff_coefficient_(0),
+      profile_start_immediately_(true),
       method_trace_(false),
       method_trace_file_size_(0),
       instrumentation_(),
@@ -187,7 +188,7 @@ Runtime::~Runtime() {
 }
 
 struct AbortState {
-  void Dump(std::ostream& os) {
+  void Dump(std::ostream& os) NO_THREAD_SAFETY_ANALYSIS {
     if (gAborting > 1) {
       os << "Runtime aborting --- recursively, so no thread-specific detail!\n";
       return;
@@ -199,24 +200,31 @@ struct AbortState {
       return;
     }
     Thread* self = Thread::Current();
-    if (self == NULL) {
+    if (self == nullptr) {
       os << "(Aborting thread was not attached to runtime!)\n";
     } else {
-      // TODO: we're aborting and the ScopedObjectAccess may attempt to acquire the mutator_lock_
-      //       which may block indefinitely if there's a misbehaving thread holding it exclusively.
-      //       The code below should be made robust to this.
-      ScopedObjectAccess soa(self);
       os << "Aborting thread:\n";
-      self->Dump(os);
-      if (self->IsExceptionPending()) {
-        ThrowLocation throw_location;
-        mirror::Throwable* exception = self->GetException(&throw_location);
-        os << "Pending exception " << PrettyTypeOf(exception)
-            << " thrown by '" << throw_location.Dump() << "'\n"
-            << exception->Dump();
+      if (Locks::mutator_lock_->IsExclusiveHeld(self) || Locks::mutator_lock_->IsSharedHeld(self)) {
+        DumpThread(os, self);
+      } else {
+        if (Locks::mutator_lock_->SharedTryLock(self)) {
+          DumpThread(os, self);
+          Locks::mutator_lock_->SharedUnlock(self);
+        }
       }
     }
     DumpAllThreads(os, self);
+  }
+
+  void DumpThread(std::ostream& os, Thread* self) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    self->Dump(os);
+    if (self->IsExceptionPending()) {
+      ThrowLocation throw_location;
+      mirror::Throwable* exception = self->GetException(&throw_location);
+      os << "Pending exception " << PrettyTypeOf(exception)
+          << " thrown by '" << throw_location.Dump() << "'\n"
+          << exception->Dump();
+    }
   }
 
   void DumpAllThreads(std::ostream& os, Thread* self) NO_THREAD_SAFETY_ANALYSIS {
@@ -272,9 +280,8 @@ void Runtime::Abort() {
   // notreached
 }
 
-bool Runtime::PreZygoteFork() {
+void Runtime::PreZygoteFork() {
   heap_->PreZygoteFork();
-  return true;
 }
 
 void Runtime::CallExitHook(jint status) {
@@ -392,7 +399,7 @@ bool Runtime::Start() {
     if (fd >= 0) {
       close(fd);
     }
-    StartProfiler(profile_output_filename_.c_str(), "", true);
+    StartProfiler(profile_output_filename_.c_str(), "");
   }
 
   return true;
@@ -617,6 +624,7 @@ bool Runtime::Init(const Options& raw_options, bool ignore_unrecognized) {
   profile_duration_s_ = options->profile_duration_s_;
   profile_interval_us_ = options->profile_interval_us_;
   profile_backoff_coefficient_ = options->profile_backoff_coefficient_;
+  profile_start_immediately_ = options->profile_start_immediately_;
   profile_ = options->profile_;
   profile_output_filename_ = options->profile_output_filename_;
   // TODO: move this to just be an Trace::Start argument
@@ -1000,7 +1008,7 @@ mirror::ArtMethod* Runtime::CreateCalleeSaveMethod(InstructionSet instruction_se
     uint32_t fp_spills = type == kSaveAll ? fp_all_spills : 0;
     size_t frame_size = RoundUp((__builtin_popcount(core_spills) /* gprs */ +
                                  __builtin_popcount(fp_spills) /* fprs */ +
-                                 1 /* Method* */) * kPointerSize, kStackAlignment);
+                                 1 /* Method* */) * kArmPointerSize, kStackAlignment);
     method->SetFrameSizeInBytes(frame_size);
     method->SetCoreSpillMask(core_spills);
     method->SetFpSpillMask(fp_spills);
@@ -1014,7 +1022,7 @@ mirror::ArtMethod* Runtime::CreateCalleeSaveMethod(InstructionSet instruction_se
                            (type == kSaveAll ? all_spills : 0) | (1 << art::mips::RA);
     size_t frame_size = RoundUp((__builtin_popcount(core_spills) /* gprs */ +
                                 (type == kRefsAndArgs ? 0 : 3) + 1 /* Method* */) *
-                                kPointerSize, kStackAlignment);
+                                kMipsPointerSize, kStackAlignment);
     method->SetFrameSizeInBytes(frame_size);
     method->SetCoreSpillMask(core_spills);
     method->SetFpSpillMask(0);
@@ -1024,7 +1032,7 @@ mirror::ArtMethod* Runtime::CreateCalleeSaveMethod(InstructionSet instruction_se
     uint32_t core_spills = ref_spills | (type == kRefsAndArgs ? arg_spills : 0) |
                          (1 << art::x86::kNumberOfCpuRegisters);  // fake return address callee save
     size_t frame_size = RoundUp((__builtin_popcount(core_spills) /* gprs */ +
-                                 1 /* Method* */) * kPointerSize, kStackAlignment);
+                                 1 /* Method* */) * kX86PointerSize, kStackAlignment);
     method->SetFrameSizeInBytes(frame_size);
     method->SetCoreSpillMask(core_spills);
     method->SetFpSpillMask(0);
@@ -1044,7 +1052,7 @@ mirror::ArtMethod* Runtime::CreateCalleeSaveMethod(InstructionSet instruction_se
     uint32_t fp_spills = (type == kRefsAndArgs ? fp_arg_spills : 0);
     size_t frame_size = RoundUp((__builtin_popcount(core_spills) /* gprs */ +
                                  __builtin_popcount(fp_spills) /* fprs */ +
-                                 1 /* Method* */) * kPointerSize, kStackAlignment);
+                                 1 /* Method* */) * kX86_64PointerSize, kStackAlignment);
     method->SetFrameSizeInBytes(frame_size);
     method->SetCoreSpillMask(core_spills);
     method->SetFpSpillMask(fp_spills);
@@ -1084,7 +1092,7 @@ mirror::ArtMethod* Runtime::CreateCalleeSaveMethod(InstructionSet instruction_se
                           | (type == kSaveAll ? fp_all_spills : 0);
       size_t frame_size = RoundUp((__builtin_popcount(core_spills) /* gprs */ +
                                    __builtin_popcount(fp_spills) /* fprs */ +
-                                   1 /* Method* */) * kPointerSize, kStackAlignment);
+                                   1 /* Method* */) * kArm64PointerSize, kStackAlignment);
       method->SetFrameSizeInBytes(frame_size);
       method->SetCoreSpillMask(core_spills);
       method->SetFpSpillMask(fp_spills);
@@ -1144,10 +1152,9 @@ void Runtime::RemoveMethodVerifier(verifier::MethodVerifier* verifier) {
   method_verifiers_.erase(it);
 }
 
-void Runtime::StartProfiler(const char* appDir, const char* procName, bool startImmediately) {
+void Runtime::StartProfiler(const char* appDir, const char* procName) {
   BackgroundMethodSamplingProfiler::Start(profile_period_s_, profile_duration_s_, appDir,
-      procName, profile_interval_us_,
-      profile_backoff_coefficient_, startImmediately);
+      procName, profile_interval_us_, profile_backoff_coefficient_, profile_start_immediately_);
 }
 
 // Transaction support.

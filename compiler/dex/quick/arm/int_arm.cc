@@ -67,6 +67,14 @@ LIR* ArmMir2Lir::OpIT(ConditionCode ccode, const char* guide) {
   return NewLIR2(kThumb2It, code, mask);
 }
 
+void ArmMir2Lir::OpEndIT(LIR* it) {
+  // TODO: use the 'it' pointer to do some checks with the LIR, for example
+  //       we could check that the number of instructions matches the mask
+  //       in the IT instruction.
+  CHECK(it != nullptr);
+  GenBarrier();
+}
+
 /*
  * 64-bit 3way compare function.
  *     mov   rX, #-1
@@ -82,8 +90,7 @@ LIR* ArmMir2Lir::OpIT(ConditionCode ccode, const char* guide) {
  *     neg   rX
  * done:
  */
-void ArmMir2Lir::GenCmpLong(RegLocation rl_dest, RegLocation rl_src1,
-                            RegLocation rl_src2) {
+void ArmMir2Lir::GenCmpLong(RegLocation rl_dest, RegLocation rl_src1, RegLocation rl_src2) {
   LIR* target1;
   LIR* target2;
   rl_src1 = LoadValueWide(rl_src1, kCoreReg);
@@ -93,13 +100,13 @@ void ArmMir2Lir::GenCmpLong(RegLocation rl_dest, RegLocation rl_src1,
   OpRegReg(kOpCmp, rl_src1.reg.GetHigh(), rl_src2.reg.GetHigh());
   LIR* branch1 = OpCondBranch(kCondLt, NULL);
   LIR* branch2 = OpCondBranch(kCondGt, NULL);
-  OpRegRegReg(kOpSub, t_reg, rl_src1.reg, rl_src2.reg);
+  OpRegRegReg(kOpSub, t_reg, rl_src1.reg.GetLow(), rl_src2.reg.GetLow());
   LIR* branch3 = OpCondBranch(kCondEq, NULL);
 
-  OpIT(kCondHi, "E");
+  LIR* it = OpIT(kCondHi, "E");
   NewLIR2(kThumb2MovI8M, t_reg.GetReg(), ModifiedImmediate(-1));
   LoadConstant(t_reg, 1);
-  GenBarrier();
+  OpEndIT(it);
 
   target2 = NewLIR0(kPseudoTargetLabel);
   OpRegReg(kOpNeg, t_reg, t_reg);
@@ -187,21 +194,21 @@ void ArmMir2Lir::GenSelect(BasicBlock* bb, MIR* mir) {
     if (cheap_false_val && ccode == kCondEq && (true_val == 0 || true_val == -1)) {
       OpRegRegImm(kOpSub, rl_result.reg, rl_src.reg, -true_val);
       DCHECK(last_lir_insn_->u.m.def_mask & ENCODE_CCODE);
-      OpIT(true_val == 0 ? kCondNe : kCondUge, "");
+      LIR* it = OpIT(true_val == 0 ? kCondNe : kCondUge, "");
       LoadConstant(rl_result.reg, false_val);
-      GenBarrier();  // Add a scheduling barrier to keep the IT shadow intact
+      OpEndIT(it);  // Add a scheduling barrier to keep the IT shadow intact
     } else if (cheap_false_val && ccode == kCondEq && true_val == 1) {
       OpRegRegImm(kOpRsub, rl_result.reg, rl_src.reg, 1);
       DCHECK(last_lir_insn_->u.m.def_mask & ENCODE_CCODE);
-      OpIT(kCondLs, "");
+      LIR* it = OpIT(kCondLs, "");
       LoadConstant(rl_result.reg, false_val);
-      GenBarrier();  // Add a scheduling barrier to keep the IT shadow intact
+      OpEndIT(it);  // Add a scheduling barrier to keep the IT shadow intact
     } else if (cheap_false_val && InexpensiveConstantInt(true_val)) {
       OpRegImm(kOpCmp, rl_src.reg, 0);
-      OpIT(ccode, "E");
+      LIR* it = OpIT(ccode, "E");
       LoadConstant(rl_result.reg, true_val);
       LoadConstant(rl_result.reg, false_val);
-      GenBarrier();  // Add a scheduling barrier to keep the IT shadow intact
+      OpEndIT(it);  // Add a scheduling barrier to keep the IT shadow intact
     } else {
       // Unlikely case - could be tuned.
       RegStorage t_reg1 = AllocTemp();
@@ -209,10 +216,10 @@ void ArmMir2Lir::GenSelect(BasicBlock* bb, MIR* mir) {
       LoadConstant(t_reg1, true_val);
       LoadConstant(t_reg2, false_val);
       OpRegImm(kOpCmp, rl_src.reg, 0);
-      OpIT(ccode, "E");
+      LIR* it = OpIT(ccode, "E");
       OpRegCopy(rl_result.reg, t_reg1);
       OpRegCopy(rl_result.reg, t_reg2);
-      GenBarrier();  // Add a scheduling barrier to keep the IT shadow intact
+      OpEndIT(it);  // Add a scheduling barrier to keep the IT shadow intact
     }
   } else {
     // MOVE case
@@ -222,18 +229,19 @@ void ArmMir2Lir::GenSelect(BasicBlock* bb, MIR* mir) {
     rl_false = LoadValue(rl_false, kCoreReg);
     rl_result = EvalLoc(rl_dest, kCoreReg, true);
     OpRegImm(kOpCmp, rl_src.reg, 0);
+    LIR* it = nullptr;
     if (rl_result.reg.GetReg() == rl_true.reg.GetReg()) {  // Is the "true" case already in place?
-      OpIT(NegateComparison(ccode), "");
+      it = OpIT(NegateComparison(ccode), "");
       OpRegCopy(rl_result.reg, rl_false.reg);
     } else if (rl_result.reg.GetReg() == rl_false.reg.GetReg()) {  // False case in place?
-      OpIT(ccode, "");
+      it = OpIT(ccode, "");
       OpRegCopy(rl_result.reg, rl_true.reg);
     } else {  // Normal - select between the two.
-      OpIT(ccode, "E");
+      it = OpIT(ccode, "E");
       OpRegCopy(rl_result.reg, rl_true.reg);
       OpRegCopy(rl_result.reg, rl_false.reg);
     }
-    GenBarrier();  // Add a scheduling barrier to keep the IT shadow intact
+    OpEndIT(it);  // Add a scheduling barrier to keep the IT shadow intact
   }
   StoreValue(rl_dest, rl_result);
 }
@@ -425,10 +433,6 @@ bool ArmMir2Lir::SmallLiteralDivRem(Instruction::Code dalvik_opcode, bool is_div
   if (pattern == DivideNone) {
     return false;
   }
-  // Tuning: add rem patterns
-  if (!is_div) {
-    return false;
-  }
 
   RegStorage r_magic = AllocTemp();
   LoadConstant(r_magic, magic_table[lit].magic);
@@ -436,25 +440,45 @@ bool ArmMir2Lir::SmallLiteralDivRem(Instruction::Code dalvik_opcode, bool is_div
   RegLocation rl_result = EvalLoc(rl_dest, kCoreReg, true);
   RegStorage r_hi = AllocTemp();
   RegStorage r_lo = AllocTemp();
+
+  // rl_dest and rl_src might overlap.
+  // Reuse r_hi to save the div result for reminder case.
+  RegStorage r_div_result = is_div ? rl_result.reg : r_hi;
+
   NewLIR4(kThumb2Smull, r_lo.GetReg(), r_hi.GetReg(), r_magic.GetReg(), rl_src.reg.GetReg());
   switch (pattern) {
     case Divide3:
-      OpRegRegRegShift(kOpSub, rl_result.reg, r_hi, rl_src.reg, EncodeShift(kArmAsr, 31));
+      OpRegRegRegShift(kOpSub, r_div_result, r_hi, rl_src.reg, EncodeShift(kArmAsr, 31));
       break;
     case Divide5:
       OpRegRegImm(kOpAsr, r_lo, rl_src.reg, 31);
-      OpRegRegRegShift(kOpRsub, rl_result.reg, r_lo, r_hi,
+      OpRegRegRegShift(kOpRsub, r_div_result, r_lo, r_hi,
                        EncodeShift(kArmAsr, magic_table[lit].shift));
       break;
     case Divide7:
       OpRegReg(kOpAdd, r_hi, rl_src.reg);
       OpRegRegImm(kOpAsr, r_lo, rl_src.reg, 31);
-      OpRegRegRegShift(kOpRsub, rl_result.reg, r_lo, r_hi,
+      OpRegRegRegShift(kOpRsub, r_div_result, r_lo, r_hi,
                        EncodeShift(kArmAsr, magic_table[lit].shift));
       break;
     default:
       LOG(FATAL) << "Unexpected pattern: " << pattern;
   }
+
+  if (!is_div) {
+    // div_result = src / lit
+    // tmp1 = div_result * lit
+    // dest = src - tmp1
+    RegStorage tmp1 = r_lo;
+    EasyMultiplyOp ops[2];
+
+    bool canEasyMultiply = GetEasyMultiplyTwoOps(lit, ops);
+    DCHECK_NE(canEasyMultiply, false);
+
+    GenEasyMultiplyTwoOps(tmp1, r_div_result, ops);
+    OpRegRegReg(kOpSub, rl_result.reg, rl_src.reg, tmp1);
+  }
+
   StoreValue(rl_dest, rl_result);
   return true;
 }
@@ -480,6 +504,7 @@ bool ArmMir2Lir::GetEasyMultiplyOp(int lit, ArmMir2Lir::EasyMultiplyOp* op) {
   }
 
   op->op = kOpInvalid;
+  op->shift = 0;
   return false;
 }
 
@@ -488,6 +513,7 @@ bool ArmMir2Lir::GetEasyMultiplyTwoOps(int lit, EasyMultiplyOp* ops) {
   GetEasyMultiplyOp(lit, &ops[0]);
   if (GetEasyMultiplyOp(lit, &ops[0])) {
     ops[1].op = kOpInvalid;
+    ops[1].shift = 0;
     return true;
   }
 
@@ -518,31 +544,52 @@ bool ArmMir2Lir::GetEasyMultiplyTwoOps(int lit, EasyMultiplyOp* ops) {
   return false;
 }
 
+// Generate instructions to do multiply.
+// Additional temporary register is required,
+// if it need to generate 2 instructions and src/dest overlap.
 void ArmMir2Lir::GenEasyMultiplyTwoOps(RegStorage r_dest, RegStorage r_src, EasyMultiplyOp* ops) {
-  // dest = ( src << shift1) + [ src | -src | 0 ]
-  // dest = (dest << shift2) + [ src | -src | 0 ]
-  for (int i = 0; i < 2; i++) {
-    RegStorage r_src2;
-    if (i == 0) {
-      r_src2 = r_src;
-    } else {
-      r_src2 = r_dest;
-    }
-    switch (ops[i].op) {
+  // tmp1 = ( src << shift1) + [ src | -src | 0 ]
+  // dest = (tmp1 << shift2) + [ src | -src | 0 ]
+
+  RegStorage r_tmp1;
+  if (ops[1].op == kOpInvalid) {
+    r_tmp1 = r_dest;
+  } else if (r_dest.GetReg() != r_src.GetReg()) {
+    r_tmp1 = r_dest;
+  } else {
+    r_tmp1 = AllocTemp();
+  }
+
+  switch (ops[0].op) {
     case kOpLsl:
-      OpRegRegImm(kOpLsl, r_dest, r_src2, ops[i].shift);
+      OpRegRegImm(kOpLsl, r_tmp1, r_src, ops[0].shift);
       break;
     case kOpAdd:
-      OpRegRegRegShift(kOpAdd, r_dest, r_src, r_src2, EncodeShift(kArmLsl, ops[i].shift));
+      OpRegRegRegShift(kOpAdd, r_tmp1, r_src, r_src, EncodeShift(kArmLsl, ops[0].shift));
       break;
     case kOpRsub:
-      OpRegRegRegShift(kOpRsub, r_dest, r_src, r_src2, EncodeShift(kArmLsl, ops[i].shift));
+      OpRegRegRegShift(kOpRsub, r_tmp1, r_src, r_src, EncodeShift(kArmLsl, ops[0].shift));
       break;
     default:
-      DCHECK_NE(i, 0);
-      DCHECK_EQ(ops[i].op, kOpInvalid);
+      DCHECK_EQ(ops[0].op, kOpInvalid);
       break;
-    }
+  }
+
+  switch (ops[1].op) {
+    case kOpInvalid:
+      return;
+    case kOpLsl:
+      OpRegRegImm(kOpLsl, r_dest, r_tmp1, ops[1].shift);
+      break;
+    case kOpAdd:
+      OpRegRegRegShift(kOpAdd, r_dest, r_src, r_tmp1, EncodeShift(kArmLsl, ops[1].shift));
+      break;
+    case kOpRsub:
+      OpRegRegRegShift(kOpRsub, r_dest, r_src, r_tmp1, EncodeShift(kArmLsl, ops[1].shift));
+      break;
+    default:
+      LOG(FATAL) << "Unexpected opcode passed to GenEasyMultiplyTwoOps";
+      break;
   }
 }
 
@@ -623,10 +670,10 @@ bool ArmMir2Lir::GenInlinedMinMaxInt(CallInfo* info, bool is_min) {
   RegLocation rl_dest = InlineTarget(info);
   RegLocation rl_result = EvalLoc(rl_dest, kCoreReg, true);
   OpRegReg(kOpCmp, rl_src1.reg, rl_src2.reg);
-  OpIT((is_min) ? kCondGt : kCondLt, "E");
+  LIR* it = OpIT((is_min) ? kCondGt : kCondLt, "E");
   OpRegReg(kOpMov, rl_result.reg, rl_src2.reg);
   OpRegReg(kOpMov, rl_result.reg, rl_src1.reg);
-  GenBarrier();
+  OpEndIT(it);
   StoreValue(rl_dest, rl_result);
   return true;
 }
@@ -783,6 +830,7 @@ bool ArmMir2Lir::GenInlinedCas(CallInfo* info, bool is_long, bool is_object) {
   RegStorage r_tmp = AllocTemp();
   LIR* target = NewLIR0(kPseudoTargetLabel);
 
+  LIR* it = nullptr;
   if (is_long) {
     RegStorage r_tmp_high = AllocTemp();
     if (!load_early) {
@@ -803,20 +851,20 @@ bool ArmMir2Lir::GenInlinedCas(CallInfo* info, bool is_long, bool is_object) {
     FreeTemp(r_tmp_high);  // Now unneeded
 
     DCHECK(last_lir_insn_->u.m.def_mask & ENCODE_CCODE);
-    OpIT(kCondEq, "T");
+    it = OpIT(kCondEq, "T");
     NewLIR4(kThumb2Strexd /* eq */, r_tmp.GetReg(), rl_new_value.reg.GetLowReg(), rl_new_value.reg.GetHighReg(), r_ptr.GetReg());
 
   } else {
     NewLIR3(kThumb2Ldrex, r_tmp.GetReg(), r_ptr.GetReg(), 0);
     OpRegReg(kOpSub, r_tmp, rl_expected.reg);
     DCHECK(last_lir_insn_->u.m.def_mask & ENCODE_CCODE);
-    OpIT(kCondEq, "T");
+    it = OpIT(kCondEq, "T");
     NewLIR4(kThumb2Strex /* eq */, r_tmp.GetReg(), rl_new_value.reg.GetReg(), r_ptr.GetReg(), 0);
   }
 
   // Still one conditional left from OpIT(kCondEq, "T") from either branch
   OpRegImm(kOpCmp /* eq */, r_tmp, 1);
-  GenBarrier();
+  OpEndIT(it);
 
   OpCondBranch(kCondEq, target);
 
@@ -828,10 +876,10 @@ bool ArmMir2Lir::GenInlinedCas(CallInfo* info, bool is_long, bool is_object) {
   RegLocation rl_result = EvalLoc(rl_dest, kCoreReg, true);
   OpRegRegImm(kOpRsub, rl_result.reg, r_tmp, 1);
   DCHECK(last_lir_insn_->u.m.def_mask & ENCODE_CCODE);
-  OpIT(kCondUlt, "");
+  it = OpIT(kCondUlt, "");
   LoadConstant(rl_result.reg, 0); /* cc */
   FreeTemp(r_tmp);  // Now unneeded.
-  GenBarrier();     // Barrier to terminate OpIT.
+  OpEndIT(it);     // Barrier to terminate OpIT.
 
   StoreValue(rl_dest, rl_result);
 
@@ -868,7 +916,7 @@ void ArmMir2Lir::GenDivZeroCheck(RegStorage reg) {
   RegStorage t_reg = AllocTemp();
   NewLIR4(kThumb2OrrRRRs, t_reg.GetReg(), reg.GetLowReg(), reg.GetHighReg(), 0);
   FreeTemp(t_reg);
-  GenCheck(kCondEq, kThrowDivZero);
+  AddDivZeroSlowPath(kCondEq);
 }
 
 // Test suspend flag, return target of taken suspend branch

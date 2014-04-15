@@ -126,14 +126,14 @@ static std::ostream& operator<<(std::ostream& os, const Breakpoint& rhs)
   return os;
 }
 
-class DebugInstrumentationListener : public instrumentation::InstrumentationListener {
+class DebugInstrumentationListener FINAL : public instrumentation::InstrumentationListener {
  public:
   DebugInstrumentationListener() {}
   virtual ~DebugInstrumentationListener() {}
 
-  virtual void MethodEntered(Thread* thread, mirror::Object* this_object,
-                             mirror::ArtMethod* method, uint32_t dex_pc)
-      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+  void MethodEntered(Thread* thread, mirror::Object* this_object, mirror::ArtMethod* method,
+                     uint32_t dex_pc)
+      OVERRIDE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
     if (method->IsNative()) {
       // TODO: post location events is a suspension point and native method entry stubs aren't.
       return;
@@ -141,10 +141,9 @@ class DebugInstrumentationListener : public instrumentation::InstrumentationList
     Dbg::PostLocationEvent(method, 0, this_object, Dbg::kMethodEntry, nullptr);
   }
 
-  virtual void MethodExited(Thread* thread, mirror::Object* this_object,
-                            mirror::ArtMethod* method,
-                            uint32_t dex_pc, const JValue& return_value)
-      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+  void MethodExited(Thread* thread, mirror::Object* this_object, mirror::ArtMethod* method,
+                    uint32_t dex_pc, const JValue& return_value)
+      OVERRIDE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
     if (method->IsNative()) {
       // TODO: post location events is a suspension point and native method entry stubs aren't.
       return;
@@ -152,26 +151,41 @@ class DebugInstrumentationListener : public instrumentation::InstrumentationList
     Dbg::PostLocationEvent(method, dex_pc, this_object, Dbg::kMethodExit, &return_value);
   }
 
-  virtual void MethodUnwind(Thread* thread, mirror::Object* this_object,
-                            mirror::ArtMethod* method, uint32_t dex_pc)
-      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+  void MethodUnwind(Thread* thread, mirror::Object* this_object, mirror::ArtMethod* method,
+                    uint32_t dex_pc)
+      OVERRIDE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
     // We're not recorded to listen to this kind of event, so complain.
     LOG(ERROR) << "Unexpected method unwind event in debugger " << PrettyMethod(method)
                << " " << dex_pc;
   }
 
-  virtual void DexPcMoved(Thread* thread, mirror::Object* this_object,
-                          mirror::ArtMethod* method, uint32_t new_dex_pc)
-      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+  void DexPcMoved(Thread* thread, mirror::Object* this_object, mirror::ArtMethod* method,
+                  uint32_t new_dex_pc)
+      OVERRIDE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
     Dbg::UpdateDebugger(thread, this_object, method, new_dex_pc);
   }
 
-  virtual void ExceptionCaught(Thread* thread, const ThrowLocation& throw_location,
-                               mirror::ArtMethod* catch_method, uint32_t catch_dex_pc,
-                               mirror::Throwable* exception_object)
-      SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-    Dbg::PostException(thread, throw_location, catch_method, catch_dex_pc, exception_object);
+  void FieldRead(Thread* thread, mirror::Object* this_object, mirror::ArtMethod* method,
+                 uint32_t dex_pc, mirror::ArtField* field)
+      OVERRIDE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    Dbg::PostFieldAccessEvent(method, dex_pc, this_object, field);
   }
+
+  void FieldWritten(Thread* thread, mirror::Object* this_object, mirror::ArtMethod* method,
+                    uint32_t dex_pc, mirror::ArtField* field, const JValue& field_value)
+      OVERRIDE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    Dbg::PostFieldModificationEvent(method, dex_pc, this_object, field, &field_value);
+  }
+
+  void ExceptionCaught(Thread* thread, const ThrowLocation& throw_location,
+                       mirror::ArtMethod* catch_method, uint32_t catch_dex_pc,
+                       mirror::Throwable* exception_object)
+      OVERRIDE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+    Dbg::PostException(throw_location, catch_method, catch_dex_pc, exception_object);
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(DebugInstrumentationListener);
 } gDebugInstrumentationListener;
 
 // JDWP is allowed unless the Zygote forbids it.
@@ -231,11 +245,29 @@ void DebugInvokeReq::VisitRoots(RootCallback* callback, void* arg, uint32_t tid,
   }
 }
 
+void DebugInvokeReq::Clear() {
+  invoke_needed = false;
+  receiver = nullptr;
+  thread = nullptr;
+  klass = nullptr;
+  method = nullptr;
+}
+
 void SingleStepControl::VisitRoots(RootCallback* callback, void* arg, uint32_t tid,
                                    RootType root_type) {
   if (method != nullptr) {
     callback(reinterpret_cast<mirror::Object**>(&method), arg, tid, root_type);
   }
+}
+
+bool SingleStepControl::ContainsDexPc(uint32_t dex_pc) const {
+  return dex_pcs.find(dex_pc) == dex_pcs.end();
+}
+
+void SingleStepControl::Clear() {
+  is_active = false;
+  method = nullptr;
+  dex_pcs.clear();
 }
 
 void DeoptimizationRequest::VisitRoots(RootCallback* callback, void* arg) {
@@ -607,6 +639,14 @@ bool Dbg::IsDisposed() {
   return gDisposed;
 }
 
+// All the instrumentation events the debugger is registered for.
+static constexpr uint32_t kListenerEvents = instrumentation::Instrumentation::kMethodEntered |
+                                            instrumentation::Instrumentation::kMethodExited |
+                                            instrumentation::Instrumentation::kDexPcMoved |
+                                            instrumentation::Instrumentation::kFieldRead |
+                                            instrumentation::Instrumentation::kFieldWritten |
+                                            instrumentation::Instrumentation::kExceptionCaught;
+
 void Dbg::GoActive() {
   // Enable all debugging features, including scans for breakpoints.
   // This is a no-op if we're already active.
@@ -633,11 +673,7 @@ void Dbg::GoActive() {
   ThreadState old_state = self->SetStateUnsafe(kRunnable);
   CHECK_NE(old_state, kRunnable);
   runtime->GetInstrumentation()->EnableDeoptimization();
-  runtime->GetInstrumentation()->AddListener(&gDebugInstrumentationListener,
-                                             instrumentation::Instrumentation::kMethodEntered |
-                                             instrumentation::Instrumentation::kMethodExited |
-                                             instrumentation::Instrumentation::kDexPcMoved |
-                                             instrumentation::Instrumentation::kExceptionCaught);
+  runtime->GetInstrumentation()->AddListener(&gDebugInstrumentationListener, kListenerEvents);
   gDebuggerActive = true;
   CHECK_EQ(self->SetStateUnsafe(old_state), kRunnable);
   runtime->GetThreadList()->ResumeAll();
@@ -668,11 +704,7 @@ void Dbg::Disconnected() {
       deoptimization_requests_.clear();
       full_deoptimization_event_count_ = 0U;
     }
-    runtime->GetInstrumentation()->RemoveListener(&gDebugInstrumentationListener,
-                                                  instrumentation::Instrumentation::kMethodEntered |
-                                                  instrumentation::Instrumentation::kMethodExited |
-                                                  instrumentation::Instrumentation::kDexPcMoved |
-                                                  instrumentation::Instrumentation::kExceptionCaught);
+    runtime->GetInstrumentation()->RemoveListener(&gDebugInstrumentationListener, kListenerEvents);
     runtime->GetInstrumentation()->DisableDeoptimization();
     gDebuggerActive = false;
   }
@@ -1217,7 +1249,8 @@ JDWP::JdwpError Dbg::SetArrayElements(JDWP::ObjectId array_id, int offset, int c
     LOG(WARNING) << __FUNCTION__ << " access out of bounds: offset=" << offset << "; count=" << count;
     return JDWP::ERR_INVALID_LENGTH;
   }
-  const char* descriptor = ClassHelper(dst->GetClass()).GetDescriptor();
+  ClassHelper ch(dst->GetClass());
+  const char* descriptor = ch.GetDescriptor();
   JDWP::JdwpTag tag = BasicTagFromDescriptor(descriptor + 1);
 
   if (IsPrimitiveTag(tag)) {
@@ -1569,6 +1602,13 @@ void Dbg::OutputMethodReturnValue(JDWP::MethodId method_id, const JValue* return
   mirror::ArtMethod* m = FromMethodId(method_id);
   JDWP::JdwpTag tag = BasicTagFromDescriptor(MethodHelper(m).GetShorty());
   OutputJValue(tag, return_value, pReply);
+}
+
+void Dbg::OutputFieldValue(JDWP::FieldId field_id, const JValue* field_value,
+                           JDWP::ExpandBuf* pReply) {
+  mirror::ArtField* f = FromFieldId(field_id);
+  JDWP::JdwpTag tag = BasicTagFromDescriptor(FieldHelper(f).GetTypeDescriptor());
+  OutputJValue(tag, field_value, pReply);
 }
 
 JDWP::JdwpError Dbg::GetBytecodes(JDWP::RefTypeId, JDWP::MethodId method_id,
@@ -2443,21 +2483,70 @@ JDWP::JdwpError Dbg::SetLocalValue(JDWP::ObjectId thread_id, JDWP::FrameId frame
   return visitor.error_;
 }
 
+JDWP::ObjectId Dbg::GetThisObjectIdForEvent(mirror::Object* this_object) {
+  // If 'this_object' isn't already in the registry, we know that we're not looking for it, so
+  // there's no point adding it to the registry and burning through ids.
+  // When registering an event request with an instance filter, we've been given an existing object
+  // id so it must already be present in the registry when the event fires.
+  JDWP::ObjectId this_id = 0;
+  if (this_object != nullptr && gRegistry->Contains(this_object)) {
+    this_id = gRegistry->Add(this_object);
+  }
+  return this_id;
+}
+
 void Dbg::PostLocationEvent(mirror::ArtMethod* m, int dex_pc, mirror::Object* this_object,
                             int event_flags, const JValue* return_value) {
+  if (!IsDebuggerActive()) {
+    return;
+  }
+  DCHECK(m != nullptr);
+  DCHECK_EQ(m->IsStatic(), this_object == nullptr);
   JDWP::JdwpLocation location;
   SetLocation(location, m, dex_pc);
 
-  // If 'this_object' isn't already in the registry, we know that we're not looking for it,
-  // so there's no point adding it to the registry and burning through ids.
-  JDWP::ObjectId this_id = 0;
-  if (gRegistry->Contains(this_object)) {
-    this_id = gRegistry->Add(this_object);
-  }
+  // We need 'this' for InstanceOnly filters only.
+  JDWP::ObjectId this_id = GetThisObjectIdForEvent(this_object);
   gJdwpState->PostLocationEvent(&location, this_id, event_flags, return_value);
 }
 
-void Dbg::PostException(Thread* thread, const ThrowLocation& throw_location,
+void Dbg::PostFieldAccessEvent(mirror::ArtMethod* m, int dex_pc,
+                               mirror::Object* this_object, mirror::ArtField* f) {
+  if (!IsDebuggerActive()) {
+    return;
+  }
+  DCHECK(m != nullptr);
+  DCHECK(f != nullptr);
+  JDWP::JdwpLocation location;
+  SetLocation(location, m, dex_pc);
+
+  JDWP::RefTypeId type_id = gRegistry->AddRefType(f->GetDeclaringClass());
+  JDWP::FieldId field_id = ToFieldId(f);
+  JDWP::ObjectId this_id = gRegistry->Add(this_object);
+
+  gJdwpState->PostFieldEvent(&location, type_id, field_id, this_id, nullptr, false);
+}
+
+void Dbg::PostFieldModificationEvent(mirror::ArtMethod* m, int dex_pc,
+                                     mirror::Object* this_object, mirror::ArtField* f,
+                                     const JValue* field_value) {
+  if (!IsDebuggerActive()) {
+    return;
+  }
+  DCHECK(m != nullptr);
+  DCHECK(f != nullptr);
+  DCHECK(field_value != nullptr);
+  JDWP::JdwpLocation location;
+  SetLocation(location, m, dex_pc);
+
+  JDWP::RefTypeId type_id = gRegistry->AddRefType(f->GetDeclaringClass());
+  JDWP::FieldId field_id = ToFieldId(f);
+  JDWP::ObjectId this_id = gRegistry->Add(this_object);
+
+  gJdwpState->PostFieldEvent(&location, type_id, field_id, this_id, field_value, true);
+}
+
+void Dbg::PostException(const ThrowLocation& throw_location,
                         mirror::ArtMethod* catch_method,
                         uint32_t catch_dex_pc, mirror::Throwable* exception_object) {
   if (!IsDebuggerActive()) {
@@ -2469,8 +2558,8 @@ void Dbg::PostException(Thread* thread, const ThrowLocation& throw_location,
   JDWP::JdwpLocation catch_location;
   SetLocation(catch_location, catch_method, catch_dex_pc);
 
-  // We need 'this' for InstanceOnly filters.
-  JDWP::ObjectId this_id = gRegistry->Add(throw_location.GetThis());
+  // We need 'this' for InstanceOnly filters only.
+  JDWP::ObjectId this_id = GetThisObjectIdForEvent(throw_location.GetThis());
   JDWP::ObjectId exception_id = gRegistry->Add(exception_object);
   JDWP::RefTypeId exception_class_id = gRegistry->AddRefType(exception_object->GetClass());
 
@@ -2520,7 +2609,7 @@ void Dbg::UpdateDebugger(Thread* thread, mirror::Object* this_object,
       } else if (single_step_control->step_size == JDWP::SS_MIN) {
         event_flags |= kSingleStep;
         VLOG(jdwp) << "SS new instruction";
-      } else if (single_step_control->dex_pcs.find(dex_pc) == single_step_control->dex_pcs.end()) {
+      } else if (single_step_control->ContainsDexPc(dex_pc)) {
         event_flags |= kSingleStep;
         VLOG(jdwp) << "SS new line";
       }
@@ -2542,7 +2631,7 @@ void Dbg::UpdateDebugger(Thread* thread, mirror::Object* this_object,
         if (single_step_control->step_size == JDWP::SS_MIN) {
           event_flags |= kSingleStep;
           VLOG(jdwp) << "SS new instruction";
-        } else if (single_step_control->dex_pcs.find(dex_pc) == single_step_control->dex_pcs.end()) {
+        } else if (single_step_control->ContainsDexPc(dex_pc)) {
           event_flags |= kSingleStep;
           VLOG(jdwp) << "SS new line";
         }
@@ -2909,8 +2998,9 @@ JDWP::JdwpError Dbg::ConfigureStep(JDWP::ObjectId thread_id, JDWP::JdwpStepSize 
   //
 
   struct DebugCallbackContext {
-    explicit DebugCallbackContext(SingleStepControl* single_step_control, int32_t line_number)
-      : single_step_control_(single_step_control), line_number_(line_number),
+    explicit DebugCallbackContext(SingleStepControl* single_step_control, int32_t line_number,
+                                  const DexFile::CodeItem* code_item)
+      : single_step_control_(single_step_control), line_number_(line_number), code_item_(code_item),
         last_pc_valid(false), last_pc(0) {
     }
 
@@ -2937,7 +3027,7 @@ JDWP::JdwpError Dbg::ConfigureStep(JDWP::ObjectId thread_id, JDWP::JdwpStepSize 
     ~DebugCallbackContext() {
       // If the line number was the last in the position table...
       if (last_pc_valid) {
-        size_t end = MethodHelper(single_step_control_->method).GetCodeItem()->insns_size_in_code_units_;
+        size_t end = code_item_->insns_size_in_code_units_;
         for (uint32_t dex_pc = last_pc; dex_pc < end; ++dex_pc) {
           single_step_control_->dex_pcs.insert(dex_pc);
         }
@@ -2946,15 +3036,17 @@ JDWP::JdwpError Dbg::ConfigureStep(JDWP::ObjectId thread_id, JDWP::JdwpStepSize 
 
     SingleStepControl* const single_step_control_;
     const int32_t line_number_;
+    const DexFile::CodeItem* const code_item_;
     bool last_pc_valid;
     uint32_t last_pc;
   };
   single_step_control->dex_pcs.clear();
   mirror::ArtMethod* m = single_step_control->method;
   if (!m->IsNative()) {
-    DebugCallbackContext context(single_step_control, line_number);
     MethodHelper mh(m);
-    mh.GetDexFile().DecodeDebugInfo(mh.GetCodeItem(), m->IsStatic(), m->GetDexMethodIndex(),
+    const DexFile::CodeItem* const code_item = mh.GetCodeItem();
+    DebugCallbackContext context(single_step_control, line_number, code_item);
+    mh.GetDexFile().DecodeDebugInfo(code_item, m->IsStatic(), m->GetDexMethodIndex(),
                                     DebugCallbackContext::Callback, NULL, &context);
   }
 
@@ -2974,8 +3066,8 @@ JDWP::JdwpError Dbg::ConfigureStep(JDWP::ObjectId thread_id, JDWP::JdwpStepSize 
     VLOG(jdwp) << "Single-step current line: " << line_number;
     VLOG(jdwp) << "Single-step current stack depth: " << single_step_control->stack_depth;
     VLOG(jdwp) << "Single-step dex_pc values:";
-    for (std::set<uint32_t>::iterator it = single_step_control->dex_pcs.begin(); it != single_step_control->dex_pcs.end(); ++it) {
-      VLOG(jdwp) << StringPrintf(" %#x", *it);
+    for (uint32_t dex_pc : single_step_control->dex_pcs) {
+      VLOG(jdwp) << StringPrintf(" %#x", dex_pc);
     }
   }
 
@@ -2990,8 +3082,7 @@ void Dbg::UnconfigureStep(JDWP::ObjectId thread_id) {
   if (error == JDWP::ERR_NONE) {
     SingleStepControl* single_step_control = thread->GetSingleStepControl();
     DCHECK(single_step_control != nullptr);
-    single_step_control->is_active = false;
-    single_step_control->dex_pcs.clear();
+    single_step_control->Clear();
   }
 }
 
