@@ -62,11 +62,19 @@ static inline bool IsAligned(T* x) {
   return IsAligned<n>(reinterpret_cast<const uintptr_t>(x));
 }
 
+template<typename T>
+static inline bool IsAlignedParam(T x, int n) {
+  return (x & (n - 1)) == 0;
+}
+
 #define CHECK_ALIGNED(value, alignment) \
   CHECK(::art::IsAligned<alignment>(value)) << reinterpret_cast<const void*>(value)
 
 #define DCHECK_ALIGNED(value, alignment) \
   DCHECK(::art::IsAligned<alignment>(value)) << reinterpret_cast<const void*>(value)
+
+#define DCHECK_ALIGNED_PARAM(value, alignment) \
+  DCHECK(::art::IsAlignedParam(value, alignment)) << reinterpret_cast<const void*>(value)
 
 // Check whether an N-bit two's-complement representation can hold value.
 static inline bool IsInt(int N, word value) {
@@ -374,7 +382,7 @@ void SetThreadName(const char* thread_name);
 
 // Dumps the native stack for thread 'tid' to 'os'.
 void DumpNativeStack(std::ostream& os, pid_t tid, const char* prefix = "",
-    bool include_count = true, mirror::ArtMethod* current_method = nullptr)
+    mirror::ArtMethod* current_method = nullptr)
     NO_THREAD_SAFETY_ANALYSIS;
 
 // Dumps the kernel stack for thread 'tid' to 'os'. Note that this is only available on linux-x86.

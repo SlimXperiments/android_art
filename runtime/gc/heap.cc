@@ -88,7 +88,8 @@ static constexpr bool kCompactZygote = kMovingCollector;
 static constexpr size_t kNonMovingSpaceCapacity = 64 * MB;
 
 Heap::Heap(size_t initial_size, size_t growth_limit, size_t min_free, size_t max_free,
-           double target_utilization, size_t capacity, const std::string& image_file_name,
+           double target_utilization, double foreground_heap_growth_multiplier, size_t capacity,
+           const std::string& image_file_name,
            CollectorType foreground_collector_type, CollectorType background_collector_type,
            size_t parallel_gc_threads, size_t conc_gc_threads, bool low_memory_mode,
            size_t long_pause_log_threshold, size_t long_gc_log_threshold,
@@ -154,6 +155,7 @@ Heap::Heap(size_t initial_size, size_t growth_limit, size_t min_free, size_t max
       min_free_(min_free),
       max_free_(max_free),
       target_utilization_(target_utilization),
+      foreground_heap_growth_multiplier_(foreground_heap_growth_multiplier),
       total_wait_time_(0),
       total_allocation_time_(0),
       verify_object_mode_(kVerifyObjectModeDisabled),
@@ -353,15 +355,15 @@ void Heap::CreateMainMallocSpace(MemMap* mem_map, size_t initial_size, size_t gr
   }
   if (kUseRosAlloc) {
     main_space_ = space::RosAllocSpace::CreateFromMemMap(mem_map, "main rosalloc space",
-                                                          kDefaultStartingSize, initial_size,
-                                                          growth_limit, capacity, low_memory_mode_,
-                                                          can_move_objects);
+                                                         kDefaultStartingSize, initial_size,
+                                                         growth_limit, capacity, low_memory_mode_,
+                                                         can_move_objects);
     CHECK(main_space_ != nullptr) << "Failed to create rosalloc space";
   } else {
     main_space_ = space::DlMallocSpace::CreateFromMemMap(mem_map, "main dlmalloc space",
-                                                          kDefaultStartingSize, initial_size,
-                                                          growth_limit, capacity,
-                                                          can_move_objects);
+                                                         kDefaultStartingSize, initial_size,
+                                                         growth_limit, capacity,
+                                                         can_move_objects);
     CHECK(main_space_ != nullptr) << "Failed to create dlmalloc space";
   }
   main_space_->SetFootprintLimit(main_space_->Capacity());
@@ -567,7 +569,7 @@ void Heap::MarkAllocStackAsLive(accounting::ObjectStack* stack) {
     space2 = space1;
   }
   MarkAllocStack(space1->GetLiveBitmap(), space2->GetLiveBitmap(),
-                 large_object_space_->GetLiveObjects(), stack);
+                 large_object_space_->GetLiveBitmap(), stack);
 }
 
 void Heap::DeleteThreadPool() {
@@ -604,10 +606,8 @@ void Heap::AddSpace(space::Space* space, bool set_as_default) {
   } else {
     DCHECK(space->IsDiscontinuousSpace());
     space::DiscontinuousSpace* discontinuous_space = space->AsDiscontinuousSpace();
-    DCHECK(discontinuous_space->GetLiveObjects() != nullptr);
-    live_bitmap_->AddDiscontinuousObjectSet(discontinuous_space->GetLiveObjects());
-    DCHECK(discontinuous_space->GetMarkObjects() != nullptr);
-    mark_bitmap_->AddDiscontinuousObjectSet(discontinuous_space->GetMarkObjects());
+    live_bitmap_->AddLargeObjectBitmap(discontinuous_space->GetLiveBitmap());
+    mark_bitmap_->AddLargeObjectBitmap(discontinuous_space->GetMarkBitmap());
     discontinuous_spaces_.push_back(discontinuous_space);
   }
   if (space->IsAllocSpace()) {
@@ -647,10 +647,8 @@ void Heap::RemoveSpace(space::Space* space) {
   } else {
     DCHECK(space->IsDiscontinuousSpace());
     space::DiscontinuousSpace* discontinuous_space = space->AsDiscontinuousSpace();
-    DCHECK(discontinuous_space->GetLiveObjects() != nullptr);
-    live_bitmap_->RemoveDiscontinuousObjectSet(discontinuous_space->GetLiveObjects());
-    DCHECK(discontinuous_space->GetMarkObjects() != nullptr);
-    mark_bitmap_->RemoveDiscontinuousObjectSet(discontinuous_space->GetMarkObjects());
+    live_bitmap_->RemoveLargeObjectBitmap(discontinuous_space->GetLiveBitmap());
+    mark_bitmap_->RemoveLargeObjectBitmap(discontinuous_space->GetMarkBitmap());
     auto it = std::find(discontinuous_spaces_.begin(), discontinuous_spaces_.end(),
                         discontinuous_space);
     DCHECK(it != discontinuous_spaces_.end());
@@ -1048,7 +1046,7 @@ bool Heap::IsLiveObjectLocked(mirror::Object* obj, bool search_allocation_stack,
     return temp_space_->Contains(obj);
   }
   space::ContinuousSpace* c_space = FindContinuousSpaceFromObject(obj, true);
-  space::DiscontinuousSpace* d_space = NULL;
+  space::DiscontinuousSpace* d_space = nullptr;
   if (c_space != nullptr) {
     if (c_space->GetLiveBitmap()->Test(obj)) {
       return true;
@@ -1056,7 +1054,7 @@ bool Heap::IsLiveObjectLocked(mirror::Object* obj, bool search_allocation_stack,
   } else {
     d_space = FindDiscontinuousSpaceFromObject(obj, true);
     if (d_space != nullptr) {
-      if (d_space->GetLiveObjects()->Test(obj)) {
+      if (d_space->GetLiveBitmap()->Test(obj)) {
         return true;
       }
     }
@@ -1094,7 +1092,7 @@ bool Heap::IsLiveObjectLocked(mirror::Object* obj, bool search_allocation_stack,
     }
   } else {
     d_space = FindDiscontinuousSpaceFromObject(obj, true);
-    if (d_space != nullptr && d_space->GetLiveObjects()->Test(obj)) {
+    if (d_space != nullptr && d_space->GetLiveBitmap()->Test(obj)) {
       return true;
     }
   }
@@ -1412,7 +1410,6 @@ void Heap::TransitionCollector(CollectorType collector_type) {
   VLOG(heap) << "TransitionCollector: " << static_cast<int>(collector_type_)
              << " -> " << static_cast<int>(collector_type);
   uint64_t start_time = NanoTime();
-  uint32_t before_size  = GetTotalMemory();
   uint32_t before_allocated = num_bytes_allocated_.Load();
   ThreadList* tl = Runtime::Current()->GetThreadList();
   Thread* self = Thread::Current();
@@ -1482,16 +1479,10 @@ void Heap::TransitionCollector(CollectorType collector_type) {
   uint64_t duration = NanoTime() - start_time;
   GrowForUtilization(semi_space_collector_);
   FinishGC(self, collector::kGcTypeFull);
-  int32_t after_size = GetTotalMemory();
-  int32_t delta_size = before_size - after_size;
   int32_t after_allocated = num_bytes_allocated_.Load();
   int32_t delta_allocated = before_allocated - after_allocated;
-  const std::string saved_bytes_str =
-      delta_size < 0 ? "-" + PrettySize(-delta_size) : PrettySize(delta_size);
   LOG(INFO) << "Heap transition to " << process_state_ << " took "
-      << PrettyDuration(duration) << " " << PrettySize(before_size) << "->"
-      << PrettySize(after_size) << " from " << PrettySize(delta_allocated) << " to "
-      << PrettySize(delta_size) << " saved";
+      << PrettyDuration(duration) << " saved at least " << PrettySize(delta_allocated);
 }
 
 void Heap::ChangeCollector(CollectorType collector_type) {
@@ -1766,7 +1757,7 @@ void Heap::FlushAllocStack() {
 
 void Heap::MarkAllocStack(accounting::ContinuousSpaceBitmap* bitmap1,
                           accounting::ContinuousSpaceBitmap* bitmap2,
-                          accounting::ObjectSet* large_objects,
+                          accounting::LargeObjectBitmap* large_objects,
                           accounting::ObjectStack* stack) {
   DCHECK(bitmap1 != nullptr);
   DCHECK(bitmap2 != nullptr);
@@ -2531,22 +2522,33 @@ collector::GarbageCollector* Heap::FindCollectorByGcType(collector::GcType gc_ty
   return nullptr;
 }
 
+double Heap::HeapGrowthMultiplier() const {
+  // If we don't care about pause times we are background, so return 1.0.
+  if (!CareAboutPauseTimes() || IsLowMemoryMode()) {
+    return 1.0;
+  }
+  return foreground_heap_growth_multiplier_;
+}
+
 void Heap::GrowForUtilization(collector::GarbageCollector* collector_ran) {
   // We know what our utilization is at this moment.
   // This doesn't actually resize any memory. It just lets the heap grow more when necessary.
-  const size_t bytes_allocated = GetBytesAllocated();
+  const uint64_t bytes_allocated = GetBytesAllocated();
   last_gc_size_ = bytes_allocated;
   last_gc_time_ns_ = NanoTime();
-  size_t target_size;
+  uint64_t target_size;
   collector::GcType gc_type = collector_ran->GetGcType();
   if (gc_type != collector::kGcTypeSticky) {
     // Grow the heap for non sticky GC.
-    target_size = bytes_allocated / GetTargetHeapUtilization();
-    if (target_size > bytes_allocated + max_free_) {
-      target_size = bytes_allocated + max_free_;
-    } else if (target_size < bytes_allocated + min_free_) {
-      target_size = bytes_allocated + min_free_;
-    }
+    const float multiplier = HeapGrowthMultiplier();  // Use the multiplier to grow more for
+    // foreground.
+    intptr_t delta = bytes_allocated / GetTargetHeapUtilization() - bytes_allocated;
+    CHECK_GE(delta, 0);
+    target_size = bytes_allocated + delta * multiplier;
+    target_size = std::min(target_size,
+                           bytes_allocated + static_cast<uint64_t>(max_free_ * multiplier));
+    target_size = std::max(target_size,
+                           bytes_allocated + static_cast<uint64_t>(min_free_ * multiplier));
     native_need_to_run_finalization_ = true;
     next_gc_type_ = collector::kGcTypeSticky;
   } else {
@@ -2571,7 +2573,7 @@ void Heap::GrowForUtilization(collector::GarbageCollector* collector_ran) {
     if (bytes_allocated + max_free_ < max_allowed_footprint_) {
       target_size = bytes_allocated + max_free_;
     } else {
-      target_size = std::max(bytes_allocated, max_allowed_footprint_);
+      target_size = std::max(bytes_allocated, static_cast<uint64_t>(max_allowed_footprint_));
     }
   }
   if (!ignore_max_footprint_) {
@@ -2595,7 +2597,8 @@ void Heap::GrowForUtilization(collector::GarbageCollector* collector_ran) {
       // Start a concurrent GC when we get close to the estimated remaining bytes. When the
       // allocation rate is very high, remaining_bytes could tell us that we should start a GC
       // right away.
-      concurrent_start_bytes_ = std::max(max_allowed_footprint_ - remaining_bytes, bytes_allocated);
+      concurrent_start_bytes_ = std::max(max_allowed_footprint_ - remaining_bytes,
+                                         static_cast<size_t>(bytes_allocated));
     }
   }
 }
@@ -2881,7 +2884,7 @@ void Heap::ClearMarkedObjects() {
   }
   // Clear the marked objects in the discontinous space object sets.
   for (const auto& space : GetDiscontinuousSpaces()) {
-    space->GetMarkObjects()->Clear();
+    space->GetMarkBitmap()->Clear();
   }
 }
 

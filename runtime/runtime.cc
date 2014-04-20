@@ -564,6 +564,7 @@ bool Runtime::Init(const Options& raw_options, bool ignore_unrecognized) {
                        options->heap_min_free_,
                        options->heap_max_free_,
                        options->heap_target_utilization_,
+                       options->foreground_heap_growth_multiplier_,
                        options->heap_maximum_size_,
                        options->image_,
                        options->collector_type_,
@@ -1229,6 +1230,10 @@ void Runtime::SetFaultMessage(const std::string& message) {
 
 void Runtime::AddCurrentRuntimeFeaturesAsDex2OatArguments(std::vector<std::string>* argv)
     const {
+  if (GetInstrumentation()->InterpretOnly()) {
+    argv->push_back("--compiler-filter=interpret-only");
+  }
+
   argv->push_back("--runtime-arg");
   std::string checkstr = "-implicit-checks";
 

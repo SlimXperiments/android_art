@@ -18,6 +18,7 @@ LOCAL_PATH := art
 
 RUNTIME_GTEST_COMMON_SRC_FILES := \
 	runtime/barrier_test.cc \
+	runtime/base/bit_field_test.cc \
 	runtime/base/bit_vector_test.cc \
 	runtime/base/hex_dump_test.cc \
 	runtime/base/histogram_test.cc \
@@ -149,10 +150,6 @@ define build-art-test
   art_gtest_name := $$(notdir $$(basename $$(art_gtest_filename)))
 
   include $(CLEAR_VARS)
-  ifeq ($$(art_target_or_host),target)
-    include external/stlport/libstlport.mk
-  endif
-
   LOCAL_CPP_EXTENSION := $(ART_CPP_EXTENSION)
   LOCAL_MODULE := $$(art_gtest_name)
   ifeq ($$(art_target_or_host),target)
@@ -183,6 +180,7 @@ define build-art-test
     LOCAL_MODULE_PATH_32 := $(ART_BASE_NATIVETEST_OUT)
     LOCAL_MODULE_PATH_64 := $(ART_BASE_NATIVETEST_OUT)64
     LOCAL_MULTILIB := both
+    include art/build/Android.libcxx.mk
     include $(BUILD_EXECUTABLE)
     ART_TARGET_GTEST_EXECUTABLES += $$(art_gtest_exe)
     art_gtest_target := test-art-$$(art_target_or_host)-gtest-$$(art_gtest_name)
@@ -207,6 +205,8 @@ $$(art_gtest_target): $$(art_gtest_target)$(ART_PHONY_TEST_TARGET_SUFFIX)
         LOCAL_STATIC_LIBRARIES += libgtest_host
     endif
     LOCAL_LDLIBS += -lpthread -ldl
+    LOCAL_IS_HOST_MODULE := true
+    include art/build/Android.libcxx.mk
     include $(BUILD_HOST_EXECUTABLE)
     art_gtest_exe := $(HOST_OUT_EXECUTABLES)/$$(LOCAL_MODULE)
     ART_HOST_GTEST_EXECUTABLES += $$(art_gtest_exe)

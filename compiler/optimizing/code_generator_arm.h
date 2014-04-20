@@ -24,11 +24,45 @@
 namespace art {
 namespace arm {
 
+class CodeGeneratorARM;
+
 static constexpr size_t kArmWordSize = 4;
+
+static constexpr Register kParameterCoreRegisters[] = { R1, R2, R3 };
+static constexpr RegisterPair kParameterCorePairRegisters[] = { R1_R2, R2_R3 };
+static constexpr size_t kParameterCoreRegistersLength = arraysize(kParameterCoreRegisters);
+
+class InvokeDexCallingConvention : public CallingConvention<Register> {
+ public:
+  InvokeDexCallingConvention()
+      : CallingConvention(kParameterCoreRegisters, kParameterCoreRegistersLength) {}
+
+  RegisterPair GetRegisterPairAt(size_t argument_index) {
+    DCHECK_LT(argument_index + 1, GetNumberOfRegisters());
+    return kParameterCorePairRegisters[argument_index];
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(InvokeDexCallingConvention);
+};
+
+class InvokeDexCallingConventionVisitor {
+ public:
+  InvokeDexCallingConventionVisitor() : gp_index_(0) {}
+
+  Location GetNextLocation(Primitive::Type type);
+
+ private:
+  InvokeDexCallingConvention calling_convention;
+  uint32_t gp_index_;
+
+  DISALLOW_COPY_AND_ASSIGN(InvokeDexCallingConventionVisitor);
+};
 
 class LocationsBuilderARM : public HGraphVisitor {
  public:
-  explicit LocationsBuilderARM(HGraph* graph) : HGraphVisitor(graph) { }
+  explicit LocationsBuilderARM(HGraph* graph, CodeGeneratorARM* codegen)
+      : HGraphVisitor(graph), codegen_(codegen) {}
 
 #define DECLARE_VISIT_INSTRUCTION(name)     \
   virtual void Visit##name(H##name* instr);
@@ -38,10 +72,11 @@ class LocationsBuilderARM : public HGraphVisitor {
 #undef DECLARE_VISIT_INSTRUCTION
 
  private:
+  CodeGeneratorARM* const codegen_;
+  InvokeDexCallingConventionVisitor parameter_visitor_;
+
   DISALLOW_COPY_AND_ASSIGN(LocationsBuilderARM);
 };
-
-class CodeGeneratorARM;
 
 class InstructionCodeGeneratorARM : public HGraphVisitor {
  public:
@@ -68,7 +103,7 @@ class CodeGeneratorARM : public CodeGenerator {
  public:
   explicit CodeGeneratorARM(HGraph* graph)
       : CodeGenerator(graph),
-        location_builder_(graph),
+        location_builder_(graph, this),
         instruction_visitor_(graph, this) { }
   virtual ~CodeGeneratorARM() { }
 
@@ -96,6 +131,11 @@ class CodeGeneratorARM : public CodeGenerator {
   int32_t GetStackSlot(HLocal* local) const;
 
  private:
+  // Helper method to move a 32bits value between two locations.
+  void Move32(Location destination, Location source);
+  // Helper method to move a 64bits value between two locations.
+  void Move64(Location destination, Location source);
+
   LocationsBuilderARM location_builder_;
   InstructionCodeGeneratorARM instruction_visitor_;
   ArmAssembler assembler_;

@@ -876,7 +876,7 @@ struct StackDumpVisitor : public StackVisitor {
     if (o == nullptr) {
       os << "an unknown object";
     } else {
-      if ((o->GetLockWord().GetState() == LockWord::kThinLocked) &&
+      if ((o->GetLockWord(false).GetState() == LockWord::kThinLocked) &&
           Locks::mutator_lock_->IsExclusiveHeld(Thread::Current())) {
         // Getting the identity hashcode here would result in lock inflation and suspension of the
         // current thread, which isn't safe if this is the only runnable thread.
@@ -939,7 +939,7 @@ void Thread::DumpStack(std::ostream& os) const {
     if (dump_for_abort || ShouldShowNativeStack(this)) {
       DumpKernelStack(os, GetTid(), "  kernel: ", false);
       SirtRef<mirror::ArtMethod> method_ref(Thread::Current(), GetCurrentMethod(nullptr));
-      DumpNativeStack(os, GetTid(), "  native: ", false, method_ref.get());
+      DumpNativeStack(os, GetTid(), "  native: ", method_ref.get());
     }
     DumpJavaStack(os);
   } else {
@@ -1094,7 +1094,7 @@ void Thread::Destroy() {
     if (lock != nullptr) {
       SirtRef<mirror::Object> sirt_obj(self, lock);
       ObjectLock<mirror::Object> locker(self, &sirt_obj);
-      locker.Notify();
+      locker.NotifyAll();
     }
   }
 

@@ -201,6 +201,8 @@ class SemiSpace : public GarbageCollector {
   // Cached live bitmap as an optimization.
   accounting::ContinuousSpaceBitmap* to_space_live_bitmap_;
   space::ContinuousMemMapAllocSpace* from_space_;
+  // Cached mark bitmap as an optimization.
+  accounting::HeapBitmap* mark_bitmap_;
 
   Thread* self_;
 
@@ -231,6 +233,11 @@ class SemiSpace : public GarbageCollector {
   // whole_heap_collection_ once per interval.
   int whole_heap_collection_interval_counter_;
 
+  // How many objects and bytes we moved, used so that we don't need to get the size of the
+  // to_space_ when calculating how many objects and bytes we freed.
+  size_t bytes_moved_;
+  size_t objects_moved_;
+
   // How many bytes we avoided dirtying.
   size_t saved_bytes_;
 
@@ -243,6 +250,7 @@ class SemiSpace : public GarbageCollector {
   static constexpr int kDefaultWholeHeapCollectionInterval = 5;
 
  private:
+  friend class BitmapSetSlowPathVisitor;
   DISALLOW_COPY_AND_ASSIGN(SemiSpace);
 };
 

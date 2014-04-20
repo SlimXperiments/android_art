@@ -353,8 +353,8 @@ static JdwpError VM_DisposeObjects(JdwpState*, Request& request, ExpandBuf*)
 
 static JdwpError VM_Capabilities(JdwpState*, Request&, ExpandBuf* reply)
     SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-  expandBufAdd1(reply, true);    // canWatchFieldModification
-  expandBufAdd1(reply, true);    // canWatchFieldAccess
+  expandBufAdd1(reply, false);   // canWatchFieldModification
+  expandBufAdd1(reply, false);   // canWatchFieldAccess
   expandBufAdd1(reply, true);    // canGetBytecodes
   expandBufAdd1(reply, true);    // canGetSyntheticAttribute
   expandBufAdd1(reply, true);    // canGetOwnedMonitorInfo
@@ -372,7 +372,7 @@ static JdwpError VM_CapabilitiesNew(JdwpState*, Request& request, ExpandBuf* rep
   expandBufAdd1(reply, false);   // canAddMethod
   expandBufAdd1(reply, false);   // canUnrestrictedlyRedefineClasses
   expandBufAdd1(reply, false);   // canPopFrames
-  expandBufAdd1(reply, false);   // canUseInstanceFilters
+  expandBufAdd1(reply, true);    // canUseInstanceFilters
   expandBufAdd1(reply, false);   // canGetSourceDebugExtension
   expandBufAdd1(reply, false);   // canRequestVMDeathEvent
   expandBufAdd1(reply, false);   // canSetDefaultStratum
