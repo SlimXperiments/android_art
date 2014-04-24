@@ -230,10 +230,15 @@ uintptr_t ArtMethod::ToNativePc(const uint32_t dex_pc) {
   return 0;
 }
 
-uint32_t ArtMethod::FindCatchBlock(Class* exception_type, uint32_t dex_pc,
+uint32_t ArtMethod::FindCatchBlock(SirtRef<Class>& exception_type, uint32_t dex_pc,
                                    bool* has_no_move_exception) {
   MethodHelper mh(this);
   const DexFile::CodeItem* code_item = mh.GetCodeItem();
+  // Set aside the exception while we resolve its type.
+  Thread* self = Thread::Current();
+  ThrowLocation throw_location;
+  SirtRef<mirror::Throwable> exception(self, self->GetException(&throw_location));
+  self->ClearException();
   // Default to handler not found.
   uint32_t found_dex_pc = DexFile::kDexNoIndex;
   // Iterate over the catch handlers associated with dex_pc.
@@ -245,20 +250,24 @@ uint32_t ArtMethod::FindCatchBlock(Class* exception_type, uint32_t dex_pc,
       break;
     }
     // Does this catch exception type apply?
-    Class* iter_exception_type = mh.GetDexCacheResolvedType(iter_type_idx);
-    if (iter_exception_type == NULL) {
-      // The verifier should take care of resolving all exception classes early
+    Class* iter_exception_type = mh.GetClassFromTypeIdx(iter_type_idx);
+    if (exception_type.get() == nullptr) {
+      self->ClearException();
       LOG(WARNING) << "Unresolved exception class when finding catch block: "
         << mh.GetTypeDescriptorFromTypeIdx(iter_type_idx);
-    } else if (iter_exception_type->IsAssignableFrom(exception_type)) {
+    } else if (iter_exception_type->IsAssignableFrom(exception_type.get())) {
       found_dex_pc = it.GetHandlerAddress();
       break;
     }
   }
   if (found_dex_pc != DexFile::kDexNoIndex) {
     const Instruction* first_catch_instr =
-        Instruction::At(&mh.GetCodeItem()->insns_[found_dex_pc]);
+        Instruction::At(&code_item->insns_[found_dex_pc]);
     *has_no_move_exception = (first_catch_instr->Opcode() != Instruction::MOVE_EXCEPTION);
+  }
+  // Put the exception back.
+  if (exception.get() != nullptr) {
+    self->SetException(throw_location, exception.get());
   }
   return found_dex_pc;
 }
@@ -342,30 +351,15 @@ bool ArtMethod::IsRegistered() {
   return native_method != jni_stub;
 }
 
-extern "C" void art_work_around_app_jni_bugs(JNIEnv*, jobject);
 void ArtMethod::RegisterNative(Thread* self, const void* native_method, bool is_fast) {
   DCHECK(Thread::Current() == self);
   CHECK(IsNative()) << PrettyMethod(this);
   CHECK(!IsFastNative()) << PrettyMethod(this);
   CHECK(native_method != NULL) << PrettyMethod(this);
-  if (!self->GetJniEnv()->vm->work_around_app_jni_bugs) {
-    if (is_fast) {
-      SetAccessFlags(GetAccessFlags() | kAccFastNative);
-    }
-    SetNativeMethod(native_method);
-  } else {
-    // We've been asked to associate this method with the given native method but are working
-    // around JNI bugs, that include not giving Object** SIRT references to native methods. Direct
-    // the native method to runtime support and store the target somewhere runtime support will
-    // find it.
-#if defined(__i386__) || defined(__x86_64__)
-    UNIMPLEMENTED(FATAL);
-#else
-    SetNativeMethod(reinterpret_cast<void*>(art_work_around_app_jni_bugs));
-#endif
-    SetFieldPtr<false>(OFFSET_OF_OBJECT_MEMBER(ArtMethod, gc_map_),
-                       reinterpret_cast<const uint8_t*>(native_method), false);
+  if (is_fast) {
+    SetAccessFlags(GetAccessFlags() | kAccFastNative);
   }
+  SetNativeMethod(native_method);
 }
 
 void ArtMethod::UnregisterNative(Thread* self) {

@@ -109,6 +109,11 @@ typedef uint32_t CodeOffset;         // Native code offset in bytes.
 #define REG_USE23            (REG_USE2 | REG_USE3)
 #define REG_USE123           (REG_USE1 | REG_USE2 | REG_USE3)
 
+// TODO: #includes need a cleanup
+#ifndef INVALID_SREG
+#define INVALID_SREG (-1)
+#endif
+
 struct BasicBlock;
 struct CallInfo;
 struct CompilationUnit;
@@ -554,12 +559,11 @@ class Mir2Lir : public Backend {
     RegisterInfo* GetRegInfo(int reg);
 
     // Shared by all targets - implemented in gen_common.cc.
-    void AddIntrinsicLaunchpad(CallInfo* info, LIR* branch, LIR* resume = nullptr);
+    void AddIntrinsicSlowPath(CallInfo* info, LIR* branch, LIR* resume = nullptr);
     bool HandleEasyDivRem(Instruction::Code dalvik_opcode, bool is_div,
                           RegLocation rl_src, RegLocation rl_dest, int lit);
     bool HandleEasyMultiply(RegLocation rl_src, RegLocation rl_dest, int lit);
     void HandleSuspendLaunchPads();
-    void HandleThrowLaunchPads();
     void HandleSlowPaths();
     void GenBarrier();
     void GenDivZeroException();
@@ -576,7 +580,6 @@ class Mir2Lir : public Backend {
     LIR* GenImmedCheck(ConditionCode c_code, RegStorage reg, int imm_val, ThrowKind kind);
     LIR* GenNullCheck(RegStorage m_reg, int opt_flags);
     LIR* GenExplicitNullCheck(RegStorage m_reg, int opt_flags);
-    LIR* GenRegRegCheck(ConditionCode c_code, RegStorage reg1, RegStorage reg2, ThrowKind kind);
     void GenCompareAndBranch(Instruction::Code opcode, RegLocation rl_src1,
                              RegLocation rl_src2, LIR* taken, LIR* fall_through);
     void GenCompareZeroAndBranch(Instruction::Code opcode, RegLocation rl_src,
@@ -725,14 +728,42 @@ class Mir2Lir : public Backend {
     RegLocation LoadCurrMethod();
     void LoadCurrMethodDirect(RegStorage r_tgt);
     LIR* LoadConstant(RegStorage r_dest, int value);
-    LIR* LoadWordDisp(RegStorage r_base, int displacement, RegStorage r_dest);
+    // Natural word size.
+    LIR* LoadWordDisp(RegStorage r_base, int displacement, RegStorage r_dest) {
+      return LoadBaseDisp(r_base, displacement, r_dest, kWord, INVALID_SREG);
+    }
+    // Load 32 bits, regardless of target.
+    LIR* Load32Disp(RegStorage r_base, int displacement, RegStorage r_dest)  {
+      return LoadBaseDisp(r_base, displacement, r_dest, k32, INVALID_SREG);
+    }
+    // Load a reference at base + displacement and decompress into register.
+    LIR* LoadRefDisp(RegStorage r_base, int displacement, RegStorage r_dest) {
+      return LoadBaseDisp(r_base, displacement, r_dest, kReference, INVALID_SREG);
+    }
+    // Load Dalvik value with 32-bit memory storage.  If compressed object reference, decompress.
     RegLocation LoadValue(RegLocation rl_src, RegisterClass op_kind);
+    // Load Dalvik value with 64-bit memory storage.
     RegLocation LoadValueWide(RegLocation rl_src, RegisterClass op_kind);
+    // Load Dalvik value with 32-bit memory storage.  If compressed object reference, decompress.
     void LoadValueDirect(RegLocation rl_src, RegStorage r_dest);
+    // Load Dalvik value with 32-bit memory storage.  If compressed object reference, decompress.
     void LoadValueDirectFixed(RegLocation rl_src, RegStorage r_dest);
+    // Load Dalvik value with 64-bit memory storage.
     void LoadValueDirectWide(RegLocation rl_src, RegStorage r_dest);
+    // Load Dalvik value with 64-bit memory storage.
     void LoadValueDirectWideFixed(RegLocation rl_src, RegStorage r_dest);
-    LIR* StoreWordDisp(RegStorage r_base, int displacement, RegStorage r_src);
+    // Store an item of natural word size.
+    LIR* StoreWordDisp(RegStorage r_base, int displacement, RegStorage r_src) {
+      return StoreBaseDisp(r_base, displacement, r_src, kWord);
+    }
+    // Store an uncompressed reference into a compressed 32-bit container.
+    LIR* StoreRefDisp(RegStorage r_base, int displacement, RegStorage r_src) {
+      return StoreBaseDisp(r_base, displacement, r_src, kReference);
+    }
+    // Store 32 bits, regardless of target.
+    LIR* Store32Disp(RegStorage r_base, int displacement, RegStorage r_src) {
+      return StoreBaseDisp(r_base, displacement, r_src, k32);
+    }
 
     /**
      * @brief Used to do the final store in the destination as per bytecode semantics.
@@ -935,8 +966,6 @@ class Mir2Lir : public Backend {
                             RegLocation rl_src2) = 0;
     virtual void GenXorLong(Instruction::Code, RegLocation rl_dest, RegLocation rl_src1,
                             RegLocation rl_src2) = 0;
-    virtual LIR* GenRegMemCheck(ConditionCode c_code, RegStorage reg1, RegStorage base,
-                                int offset, ThrowKind kind) = 0;
     virtual RegLocation GenDivRem(RegLocation rl_dest, RegStorage reg_lo, RegStorage reg_hi,
                                   bool is_div) = 0;
     virtual RegLocation GenDivRemLit(RegLocation rl_dest, RegStorage reg_lo, int lit,
@@ -1246,7 +1275,6 @@ class Mir2Lir : public Backend {
     MIRGraph* const mir_graph_;
     GrowableArray<SwitchTable*> switch_tables_;
     GrowableArray<FillArrayData*> fill_array_data_;
-    GrowableArray<LIR*> throw_launchpads_;
     GrowableArray<LIR*> suspend_launchpads_;
     GrowableArray<RegisterInfo*> tempreg_info_;
     GrowableArray<RegisterInfo*> reginfo_map_;

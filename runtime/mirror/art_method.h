@@ -270,9 +270,11 @@ class MANAGED ArtMethod : public Object {
       return pc == 0;
     }
     /*
-     * During a stack walk, a return PC may point to the end of the code + 1
-     * (in the case that the last instruction is a call that isn't expected to
+     * During a stack walk, a return PC may point past-the-end of the code
+     * in the case that the last instruction is a call that isn't expected to
      * return.  Thus, we check <= code + GetCodeSize().
+     *
+     * NOTE: For Thumb both pc and code are offset by 1 indicating the Thumb state.
      */
     return (code <= pc && pc <= code + GetCodeSize());
   }
@@ -418,7 +420,8 @@ class MANAGED ArtMethod : public Object {
   // Find the catch block for the given exception type and dex_pc. When a catch block is found,
   // indicates whether the found catch block is responsible for clearing the exception or whether
   // a move-exception instruction is present.
-  uint32_t FindCatchBlock(Class* exception_type, uint32_t dex_pc, bool* has_no_move_exception)
+  uint32_t FindCatchBlock(SirtRef<Class>& exception_type, uint32_t dex_pc,
+                          bool* has_no_move_exception)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   static void SetClass(Class* java_lang_reflect_ArtMethod);

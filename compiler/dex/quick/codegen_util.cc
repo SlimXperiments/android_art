@@ -926,7 +926,6 @@ Mir2Lir::Mir2Lir(CompilationUnit* cu, MIRGraph* mir_graph, ArenaAllocator* arena
       mir_graph_(mir_graph),
       switch_tables_(arena, 4, kGrowableArraySwitchTables),
       fill_array_data_(arena, 4, kGrowableArrayFillArrayData),
-      throw_launchpads_(arena, 2048, kGrowableArrayThrowLaunchPads),
       suspend_launchpads_(arena, 4, kGrowableArraySuspendLaunchPads),
       tempreg_info_(arena, 20, kGrowableArrayMisc),
       reginfo_map_(arena, 64, kGrowableArrayMisc),
@@ -1118,7 +1117,7 @@ bool Mir2Lir::BadOverlap(RegLocation rl_src, RegLocation rl_dest) {
 LIR *Mir2Lir::OpCmpMemImmBranch(ConditionCode cond, RegStorage temp_reg, RegStorage base_reg,
                                 int offset, int check_value, LIR* target) {
   // Handle this for architectures that can't compare to memory.
-  LoadWordDisp(base_reg, offset, temp_reg);
+  Load32Disp(base_reg, offset, temp_reg);
   LIR* branch = OpCmpImmBranch(cond, temp_reg, check_value, target);
   return branch;
 }

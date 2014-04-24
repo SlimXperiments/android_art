@@ -239,7 +239,7 @@ void X86Mir2Lir::GenEntrySequence(RegLocation* ArgLocs, RegLocation rl_method) {
     // mov esp, ebp
     // in case a signal comes in that's not using an alternate signal stack and the large frame may
     // have moved us outside of the reserved area at the end of the stack.
-    // cmp rX86_SP, fs:[stack_end_]; jcc throw_launchpad
+    // cmp rX86_SP, fs:[stack_end_]; jcc throw_slowpath
     OpRegThreadMem(kOpCmp, rX86_SP, Thread::StackEndOffset<4>());
     LIR* branch = OpCondBranch(kCondUlt, nullptr);
     AddSlowPath(new(arena_)StackOverflowSlowPath(this, branch, frame_size_ - 4));
@@ -251,7 +251,8 @@ void X86Mir2Lir::GenEntrySequence(RegLocation* ArgLocs, RegLocation rl_method) {
     // We have been asked to save the address of the method start for later use.
     setup_method_address_[0] = NewLIR1(kX86StartOfMethod, rX86_ARG0);
     int displacement = SRegOffset(base_of_code_->s_reg_low);
-    setup_method_address_[1] = StoreBaseDisp(rs_rX86_SP, displacement, rs_rX86_ARG0, kWord);
+    // Native pointer - must be natural word size.
+    setup_method_address_[1] = StoreWordDisp(rs_rX86_SP, displacement, rs_rX86_ARG0);
   }
 
   FreeTemp(rX86_ARG0);
