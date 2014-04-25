@@ -41,7 +41,7 @@ class MANAGED Array : public Object {
                                  const SirtRef<IntArray>& dimensions)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
-  template<VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
+  template<VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags, bool kDoReadBarrier = true>
   size_t SizeOf() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
   template<VerifyObjectFlags kVerifyFlags = kDefaultVerifyFlags>
   int32_t GetLength() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
@@ -66,12 +66,6 @@ class MANAGED Array : public Object {
       // Align longs and doubles.
       return MemberOffset(OFFSETOF_MEMBER(Array, first_element_) + 4);
     }
-  }
-
-  template<class MirrorType>
-  static int32_t DataOffsetOfType(uint32_t index) {
-    return DataOffset(sizeof(HeapReference<MirrorType>)).Int32Value() +
-           (sizeof(HeapReference<MirrorType>) * index);
   }
 
   void* GetRawData(size_t component_size, int32_t index)

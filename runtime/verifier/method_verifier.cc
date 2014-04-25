@@ -1176,8 +1176,11 @@ bool MethodVerifier::SetTypesFromSignature() {
         // it's effectively considered initialized the instant we reach here (in the sense that we
         // can return without doing anything or call virtual methods).
         {
-          const RegType& reg_type = reg_types_.FromDescriptor(class_loader_->get(), descriptor,
-                                                              false);
+          const RegType& reg_type = ResolveClassAndCheckAccess(iterator.GetTypeIdx());
+          if (!reg_type.IsNonZeroReferenceTypes()) {
+            DCHECK(HasFailures());
+            return false;
+          }
           reg_line->SetRegisterType(arg_start + cur_arg, reg_type);
         }
         break;
@@ -2865,11 +2868,7 @@ const RegType& MethodVerifier::GetCaughtExceptionType() {
             common_super = &reg_types_.JavaLangThrowable(false);
           } else {
             const RegType& exception = ResolveClassAndCheckAccess(iterator.GetHandlerTypeIndex());
-            if (common_super == NULL) {
-              // Unconditionally assign for the first handler. We don't assert this is a Throwable
-              // as that is caught at runtime
-              common_super = &exception;
-            } else if (!reg_types_.JavaLangThrowable(false).IsAssignableFrom(exception)) {
+            if (!reg_types_.JavaLangThrowable(false).IsAssignableFrom(exception)) {
               if (exception.IsUnresolvedTypes()) {
                 // We don't know enough about the type. Fail here and let runtime handle it.
                 Fail(VERIFY_ERROR_NO_CLASS) << "unresolved exception class " << exception;
@@ -2878,6 +2877,8 @@ const RegType& MethodVerifier::GetCaughtExceptionType() {
                 Fail(VERIFY_ERROR_BAD_CLASS_SOFT) << "unexpected non-exception class " << exception;
                 return reg_types_.Conflict();
               }
+            } else if (common_super == nullptr) {
+              common_super = &exception;
             } else if (common_super->Equals(exception)) {
               // odd case, but nothing to do
             } else {
@@ -3596,29 +3597,6 @@ void MethodVerifier::VerifyISPut(const Instruction* inst, const RegType& insn_ty
   }
 }
 
-// Look for an instance field with this offset.
-// TODO: we may speed up the search if offsets are sorted by doing a quick search.
-static mirror::ArtField* FindInstanceFieldWithOffset(mirror::Class* klass, uint32_t field_offset)
-    SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-  mirror::ObjectArray<mirror::ArtField>* instance_fields = klass->GetIFields();
-  if (instance_fields != NULL) {
-    for (int32_t i = 0, e = instance_fields->GetLength(); i < e; ++i) {
-      mirror::ArtField* field = instance_fields->Get(i);
-      if (field->GetOffset().Uint32Value() == field_offset) {
-        return field;
-      }
-    }
-  }
-  // We did not find field in class: look into superclass.
-  if (klass->GetSuperClass() != NULL) {
-    return FindInstanceFieldWithOffset(klass->GetSuperClass(), field_offset);
-  } else {
-    VLOG(verifier) << "Failed to find instance field at offset '" << field_offset
-        << "' from '" << PrettyDescriptor(klass) << "'";
-    return nullptr;
-  }
-}
-
 mirror::ArtField* MethodVerifier::GetQuickFieldAccess(const Instruction* inst,
                                                       RegisterLine* reg_line) {
   DCHECK(inst->Opcode() == Instruction::IGET_QUICK ||
@@ -3633,7 +3611,13 @@ mirror::ArtField* MethodVerifier::GetQuickFieldAccess(const Instruction* inst,
     return nullptr;
   }
   uint32_t field_offset = static_cast<uint32_t>(inst->VRegC_22c());
-  return FindInstanceFieldWithOffset(object_type.GetClass(), field_offset);
+  mirror::ArtField* f = mirror::ArtField::FindInstanceFieldWithOffset(object_type.GetClass(),
+                                                                      field_offset);
+  if (f == nullptr) {
+    VLOG(verifier) << "Failed to find instance field at offset '" << field_offset
+                   << "' from '" << PrettyDescriptor(object_type.GetClass()) << "'";
+  }
+  return f;
 }
 
 void MethodVerifier::VerifyIGetQuick(const Instruction* inst, const RegType& insn_type,
