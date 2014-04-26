@@ -46,6 +46,11 @@
     sub sp, #12       @ 3 words of space, bottom word will hold Method*
     .pad #12
     .cfi_adjust_cfa_offset 12
+
+     // Ugly compile-time check, but we only have the preprocessor.
+#if (FRAME_SIZE_SAVE_ALL_CALLEE_SAVE != 36 + 128 + 12)
+#error "SAVE_ALL_CALLEE_SAVE_FRAME(ARM) size not as expected."
+#endif
 .endm
 
     /*
@@ -66,6 +71,11 @@
     sub sp, #4                @ bottom word will hold Method*
     .pad #4
     .cfi_adjust_cfa_offset 4
+
+    // Ugly compile-time check, but we only have the preprocessor.
+#if (FRAME_SIZE_REFS_ONLY_CALLEE_SAVE != 28 + 4)
+#error "REFS_ONLY_CALLEE_SAVE_FRAME(ARM) size not as expected."
+#endif
 .endm
 
 .macro RESTORE_REF_ONLY_CALLEE_SAVE_FRAME
@@ -114,6 +124,11 @@
     sub sp, #8                        @ 2 words of space, bottom word will hold Method*
     .pad #8
     .cfi_adjust_cfa_offset 8
+
+    // Ugly compile-time check, but we only have the preprocessor.
+#if (FRAME_SIZE_REFS_AND_ARGS_CALLEE_SAVE != 40 + 8)
+#error "REFS_AND_ARGS_CALLEE_SAVE_FRAME(ARM64) size not as expected."
+#endif
 .endm
 
 .macro RESTORE_REF_AND_ARGS_CALLEE_SAVE_FRAME
@@ -492,11 +507,22 @@ ENTRY art_quick_aput_obj
     blx lr
 .Lcheck_assignability:
     push {r0-r2, lr}             @ save arguments
+    .save {r0-r2, lr}
+    .cfi_adjust_cfa_offset 16
+    .cfi_rel_offset r0, 0
+    .cfi_rel_offset r1, 4
+    .cfi_rel_offset r2, 8
+    .cfi_rel_offset lr, 12
     mov r1, ip
     mov r0, r3
     bl artIsAssignableFromCode
     cbz r0, .Lthrow_array_store_exception
     pop {r0-r2, lr}
+    .cfi_restore r0
+    .cfi_restore r1
+    .cfi_restore r2
+    .cfi_restore lr
+    .cfi_adjust_cfa_offset -16
     add r3, r0, #OBJECT_ARRAY_DATA_OFFSET
     str r2, [r3, r1, lsl #2]
     ldr r3, [r9, #THREAD_CARD_TABLE_OFFSET]
@@ -505,6 +531,11 @@ ENTRY art_quick_aput_obj
     blx lr
 .Lthrow_array_store_exception:
     pop {r0-r2, lr}
+    .cfi_restore r0
+    .cfi_restore r1
+    .cfi_restore r2
+    .cfi_restore lr
+    .cfi_adjust_cfa_offset -16
     SETUP_SAVE_ALL_CALLEE_SAVE_FRAME
     mov r1, r2
     mov r2, r9                   @ pass Thread::Current

@@ -39,6 +39,12 @@ MACRO0(SETUP_SAVE_ALL_CALLEE_SAVE_FRAME)
     movq RUNTIME_SAVE_ALL_CALLEE_SAVE_FRAME_OFFSET(%r10), %r10
     // Store ArtMethod* to bottom of stack.
     movq %r10, 0(%rsp)
+
+    // Ugly compile-time check, but we only have the preprocessor.
+    // Last +8: implicit return address pushed on stack when caller made call.
+#if (FRAME_SIZE_SAVE_ALL_CALLEE_SAVE != 6*8 + 8 + 8)
+#error "SAVE_ALL_CALLEE_SAVE_FRAME(X86_64) size not as expected."
+#endif
 END_MACRO
 
     /*
@@ -63,6 +69,12 @@ MACRO0(SETUP_REF_ONLY_CALLEE_SAVE_FRAME)
     movq RUNTIME_REFS_ONLY_CALLEE_SAVE_FRAME_OFFSET(%r10), %r10
     // Store ArtMethod* to bottom of stack.
     movq %r10, 0(%rsp)
+
+    // Ugly compile-time check, but we only have the preprocessor.
+    // Last +8: implicit return address pushed on stack when caller made call.
+#if (FRAME_SIZE_REFS_ONLY_CALLEE_SAVE != 6*8 + 8 + 8)
+#error "REFS_ONLY_CALLEE_SAVE_FRAME(X86_64) size not as expected."
+#endif
 END_MACRO
 
 MACRO0(RESTORE_REF_ONLY_CALLEE_SAVE_FRAME)
@@ -114,6 +126,12 @@ MACRO0(SETUP_REF_AND_ARGS_CALLEE_SAVE_FRAME)
     movq %xmm7, 72(%rsp)
     // Store ArtMethod* to bottom of stack.
     movq %r10, 0(%rsp)
+
+    // Ugly compile-time check, but we only have the preprocessor.
+    // Last +8: implicit return address pushed on stack when caller made call.
+#if (FRAME_SIZE_REFS_AND_ARGS_CALLEE_SAVE != 11*8 + 80 + 8)
+#error "REFS_AND_ARGS_CALLEE_SAVE_FRAME(X86_64) size not as expected."
+#endif
 END_MACRO
 
 MACRO0(RESTORE_REF_AND_ARGS_CALLEE_SAVE_FRAME)
@@ -666,8 +684,22 @@ DEFINE_FUNCTION art_quick_is_assignable
 END_FUNCTION art_quick_is_assignable
 
 DEFINE_FUNCTION art_quick_check_cast
-    int3
-    int3
+    PUSH rdi                          // Save args for exc
+    PUSH rsi
+    call PLT_SYMBOL(artIsAssignableFromCode)  // (Class* klass, Class* ref_klass)
+    testq %rax, %rax
+    jz 1f                             // jump forward if not assignable
+    addq LITERAL(16), %rsp            // pop arguments
+    CFI_ADJUST_CFA_OFFSET(-16)
+    ret
+1:
+    POP rsi                           // Pop arguments
+    POP rdi
+    SETUP_SAVE_ALL_CALLEE_SAVE_FRAME  // save all registers as basis for long jump context
+    mov %rsp, %rcx                    // pass SP
+    mov %gs:THREAD_SELF_OFFSET, %rdx  // pass Thread::Current()
+    call PLT_SYMBOL(artThrowClassCastException) // (Class* a, Class* b, Thread*, SP)
+    int3                              // unreached
 END_FUNCTION art_quick_check_cast
 
     /*
@@ -678,7 +710,12 @@ END_FUNCTION art_quick_check_cast
 UNIMPLEMENTED art_quick_aput_obj_with_null_and_bound_check
 UNIMPLEMENTED art_quick_aput_obj_with_bound_check
 UNIMPLEMENTED art_quick_aput_obj
-UNIMPLEMENTED art_quick_memcpy
+
+// TODO: This is quite silly on X86_64 now.
+DEFINE_FUNCTION art_quick_memcpy
+    call PLT_SYMBOL(memcpy)       // (void*, const void*, size_t)
+    ret
+END_FUNCTION art_quick_memcpy
 
 NO_ARG_DOWNCALL art_quick_test_suspend, artTestSuspendFromCode, ret
 
