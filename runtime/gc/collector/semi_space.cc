@@ -110,7 +110,6 @@ SemiSpace::SemiSpace(Heap* heap, bool generational, const std::string& name_pref
 }
 
 void SemiSpace::InitializePhase() {
-  timings_.Reset();
   TimingLogger::ScopedSplit split("InitializePhase", &timings_);
   mark_stack_ = heap_->mark_stack_.get();
   DCHECK(mark_stack_ != nullptr);
@@ -334,7 +333,8 @@ void SemiSpace::MarkReachableObjects() {
       accounting::RememberedSet* rem_set = heap_->FindRememberedSetFromSpace(space);
       if (kUseRememberedSet) {
         DCHECK(rem_set != nullptr);
-        rem_set->UpdateAndMarkReferences(MarkHeapReferenceCallback, from_space_, this);
+        rem_set->UpdateAndMarkReferences(MarkHeapReferenceCallback, DelayReferenceReferentCallback,
+                                         from_space_, this);
         if (kIsDebugBuild) {
           // Verify that there are no from-space references that
           // remain in the space, that is, the remembered set (and the
@@ -601,6 +601,11 @@ mirror::Object* SemiSpace::MarkObjectCallback(mirror::Object* root, void* arg) {
 void SemiSpace::MarkHeapReferenceCallback(mirror::HeapReference<mirror::Object>* obj_ptr,
                                           void* arg) {
   reinterpret_cast<SemiSpace*>(arg)->MarkObject(obj_ptr);
+}
+
+void SemiSpace::DelayReferenceReferentCallback(mirror::Class* klass, mirror::Reference* ref,
+                                               void* arg) {
+  reinterpret_cast<SemiSpace*>(arg)->DelayReferenceReferent(klass, ref);
 }
 
 void SemiSpace::MarkRootCallback(Object** root, void* arg, uint32_t /*thread_id*/,
