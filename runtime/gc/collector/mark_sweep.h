@@ -22,7 +22,7 @@
 #include "base/macros.h"
 #include "base/mutex.h"
 #include "garbage_collector.h"
-#include "gc/accounting/space_bitmap.h"
+#include "gc/accounting/heap_bitmap.h"
 #include "immune_region.h"
 #include "object_callbacks.h"
 #include "offsets.h"
@@ -56,11 +56,12 @@ class MarkSweep : public GarbageCollector {
 
   ~MarkSweep() {}
 
-  virtual void InitializePhase() OVERRIDE;
-  virtual void MarkingPhase() OVERRIDE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
-  virtual void PausePhase() OVERRIDE EXCLUSIVE_LOCKS_REQUIRED(Locks::mutator_lock_);
-  virtual void ReclaimPhase() OVERRIDE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
-  virtual void FinishPhase() OVERRIDE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  virtual void RunPhases() OVERRIDE NO_THREAD_SAFETY_ANALYSIS;
+  void InitializePhase();
+  void MarkingPhase() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  void PausePhase() EXCLUSIVE_LOCKS_REQUIRED(Locks::mutator_lock_);
+  void ReclaimPhase() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
+  void FinishPhase() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
   virtual void MarkReachableObjects()
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_)
       EXCLUSIVE_LOCKS_REQUIRED(Locks::heap_bitmap_lock_);
