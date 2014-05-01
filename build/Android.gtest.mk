@@ -49,6 +49,7 @@ RUNTIME_GTEST_COMMON_SRC_FILES := \
 	runtime/gtest_test.cc \
 	runtime/indenter_test.cc \
 	runtime/indirect_reference_table_test.cc \
+	runtime/instruction_set_test.cc \
 	runtime/intern_table_test.cc \
 	runtime/leb128_test.cc \
 	runtime/mem_map_test.cc \
@@ -105,7 +106,8 @@ COMPILER_GTEST_TARGET_SRC_FILES := \
 
 COMPILER_GTEST_HOST_SRC_FILES := \
 	$(COMPILER_GTEST_COMMON_SRC_FILES) \
-	compiler/utils/x86/assembler_x86_test.cc
+	compiler/utils/x86/assembler_x86_test.cc \
+	compiler/utils/x86_64/assembler_x86_64_test.cc
 
 ART_HOST_GTEST_EXECUTABLES :=
 ART_TARGET_GTEST_EXECUTABLES$(ART_PHONY_TEST_TARGET_SUFFIX) :=
