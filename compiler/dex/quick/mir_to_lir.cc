@@ -42,7 +42,7 @@ RegStorage Mir2Lir::LoadArg(int in_position, bool wide) {
   RegStorage reg_arg_high = wide ? GetArgMappingToPhysicalReg(in_position + 1) :
       RegStorage::InvalidReg();
 
-  int offset = StackVisitor::GetOutVROffset(in_position);
+  int offset = StackVisitor::GetOutVROffset(in_position, cu_->instruction_set);
   if (cu_->instruction_set == kX86 || cu_->instruction_set == kX86_64) {
     /*
      * When doing a call for x86, it moves the stack pointer in order to push return.
@@ -81,7 +81,7 @@ RegStorage Mir2Lir::LoadArg(int in_position, bool wide) {
 }
 
 void Mir2Lir::LoadArgDirect(int in_position, RegLocation rl_dest) {
-  int offset = StackVisitor::GetOutVROffset(in_position);
+  int offset = StackVisitor::GetOutVROffset(in_position, cu_->instruction_set);
   if (cu_->instruction_set == kX86 || cu_->instruction_set == kX86_64) {
     /*
      * When doing a call for x86, it moves the stack pointer in order to push return.
@@ -286,7 +286,7 @@ void Mir2Lir::CompileDalvikInstruction(MIR* mir, BasicBlock* bb, LIR* label_list
   // Prep Src and Dest locations.
   int next_sreg = 0;
   int next_loc = 0;
-  uint64_t attrs = mir_graph_->oat_data_flow_attributes_[opcode];
+  uint64_t attrs = MIRGraph::GetDataFlowAttributes(opcode);
   rl_src[0] = rl_src[1] = rl_src[2] = mir_graph_->GetBadLoc();
   if (attrs & DF_UA) {
     if (attrs & DF_A_WIDE) {

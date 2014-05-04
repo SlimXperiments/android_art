@@ -470,12 +470,21 @@ inline void Class::CheckObjectAlloc() {
   DCHECK_GE(this->object_size_, sizeof(Object));
 }
 
-template <bool kIsInstrumented>
+template<bool kIsInstrumented, bool kCheckAddFinalizer>
 inline Object* Class::Alloc(Thread* self, gc::AllocatorType allocator_type) {
   CheckObjectAlloc();
   gc::Heap* heap = Runtime::Current()->GetHeap();
-  return heap->AllocObjectWithAllocator<kIsInstrumented, false>(self, this, this->object_size_,
-                                                                allocator_type, VoidFunctor());
+  const bool add_finalizer = kCheckAddFinalizer && IsFinalizable();
+  if (!kCheckAddFinalizer) {
+    DCHECK(!IsFinalizable());
+  }
+  mirror::Object* obj =
+      heap->AllocObjectWithAllocator<kIsInstrumented, false>(self, this, this->object_size_,
+                                                             allocator_type, VoidFunctor());
+  if (add_finalizer && LIKELY(obj != nullptr)) {
+    heap->AddFinalizerReference(self, &obj);
+  }
+  return obj;
 }
 
 inline Object* Class::AllocObject(Thread* self) {
@@ -492,17 +501,17 @@ inline void Class::VisitReferences(mirror::Class* klass, const Visitor& visitor)
   VisitStaticFieldsReferences<kVisitClass>(this, visitor);
 }
 
-template<bool kDoReadBarrier>
+template<ReadBarrierOption kReadBarrierOption>
 bool Class::IsArtFieldClass() {
-  Class* java_lang_Class = GetClass<kVerifyNone, kDoReadBarrier>();
+  Class* java_lang_Class = GetClass<kVerifyNone, kReadBarrierOption>();
   Class* java_lang_reflect_ArtField =
-      java_lang_Class->GetInstanceField(0)->GetClass<kVerifyNone, kDoReadBarrier>();
+      java_lang_Class->GetInstanceField(0)->GetClass<kVerifyNone, kReadBarrierOption>();
   return this == java_lang_reflect_ArtField;
 }
 
-template<bool kDoReadBarrier>
+template<ReadBarrierOption kReadBarrierOption>
 bool Class::IsArtMethodClass() {
-  return this == ArtMethod::GetJavaLangReflectArtMethod<kDoReadBarrier>();
+  return this == ArtMethod::GetJavaLangReflectArtMethod<kReadBarrierOption>();
 }
 
 }  // namespace mirror

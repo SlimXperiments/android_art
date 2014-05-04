@@ -123,6 +123,11 @@ ifneq ($(WITHOUT_HOST_CLANG),true)
   ART_HOST_CLANG := true
 endif
 
+# enable ART_TARGET_CLANG for ARM64
+ifneq (,$(filter $(TARGET_ARCH),arm64))
+ART_TARGET_CLANG := true
+endif
+
 # directory used for dalvik-cache on device
 ART_DALVIK_CACHE_DIR := /data/dalvik-cache
 
@@ -195,6 +200,14 @@ art_cflags := \
 	-Wstrict-aliasing \
 	-fstrict-aliasing
 
+# these are necessary for Clang ARM64 ART builds
+ifeq ($(ART_TARGET_CLANG), true)
+art_cflags += \
+	-Wno-implicit-exception-spec-mismatch \
+	-DNVALGRIND \
+	-Wno-unused-value
+endif
+
 ifeq ($(ART_SMALL_MODE),true)
   art_cflags += -DART_SMALL_MODE=1
 endif
@@ -209,7 +222,13 @@ ifeq ($(HOST_OS),linux)
 endif
 
 art_non_debug_cflags := \
-        -O3
+	-O3
+
+# FIXME: upstream LLVM has a vectorizer bug that needs to be fixed
+ifeq ($(ART_TARGET_CLANG),true)
+art_non_debug_cflags += \
+        -fno-vectorize
+endif
 
 art_debug_cflags := \
 	-O1 \
@@ -238,8 +257,9 @@ ART_TARGET_CFLAGS += -DART_DEFAULT_INSTRUCTION_SET_FEATURES=$(DEX2OAT_TARGET_INS
 ifneq ($(filter 4.6 4.6.%, $(TARGET_GCC_VERSION)),)
   ART_TARGET_CFLAGS += -Wthread-safety
 else
+  # FIXME: add -Wthread-safety when the problem is fixed
   ifeq ($(ART_TARGET_CLANG),true)
-    ART_TARGET_CFLAGS += -Wthread-safety
+    ART_TARGET_CFLAGS +=
   else
     # Warn if -Wthread-safety is not suport and not doing a top-level or 'mma' build.
     ifneq ($(ONE_SHOT_MAKEFILE),)
@@ -304,7 +324,7 @@ endif
 #         Has one argument, the suffix
 define call-art-multi-target
   $(call $(1),$(ART_PHONY_TEST_TARGET_SUFFIX))
-  
+
   ifdef TARGET_2ND_ARCH
     $(call $(1),$(2ND_ART_PHONY_TEST_TARGET_SUFFIX))
   endif
@@ -329,10 +349,10 @@ endef
 #         Has one argument, the suffix
 define call-art-multi-target-var
   $(call $(1),$(ART_PHONY_TEST_TARGET_SUFFIX))
-  
+
   ifdef TARGET_2ND_ARCH
     $(call $(1),$(2ND_ART_PHONY_TEST_TARGET_SUFFIX))
-    
+
     # Link both together, if it makes sense
     ifneq ($(ART_PHONY_TEST_TARGET_SUFFIX),)
       ifneq ($(2ND_ART_PHONY_TEST_TARGET_SUFFIX),)
@@ -351,10 +371,10 @@ endef
 #       We assume we can link the names together easily...
 define call-art-multi-target-rule
   $(call $(1),$(ART_PHONY_TEST_TARGET_SUFFIX))
-  
+
   ifdef TARGET_2ND_ARCH
     $(call $(1),$(2ND_ART_PHONY_TEST_TARGET_SUFFIX))
-  
+
     # Link both together, if it makes sense
     ifneq ($(ART_PHONY_TEST_TARGET_SUFFIX),)
       ifneq ($(2ND_ART_PHONY_TEST_TARGET_SUFFIX),)

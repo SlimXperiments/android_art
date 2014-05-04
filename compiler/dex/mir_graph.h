@@ -254,7 +254,15 @@ struct MIR {
    * additional fields on as-needed basis.  Question: how to support MIR Pseudo-ops; probably
    * need to carry aux data pointer.
    */
-  DecodedInstruction dalvikInsn;
+  struct DecodedInstruction {
+    uint32_t vA;
+    uint32_t vB;
+    uint64_t vB_wide;        /* for k51l */
+    uint32_t vC;
+    uint32_t arg[5];         /* vC/D/E/F/G in invoke or filled-new-array */
+    Instruction::Code opcode;
+  } dalvikInsn;
+
   uint16_t width;                 // Note: width can include switch table or fill array data.
   NarrowDexOffset offset;         // Offset of the instruction in code units.
   uint16_t optimization_flags;
@@ -851,6 +859,9 @@ class MIRGraph {
    */
   void CountUses(struct BasicBlock* bb);
 
+  static uint64_t GetDataFlowAttributes(Instruction::Code opcode);
+  static uint64_t GetDataFlowAttributes(MIR* mir);
+
   /**
    * @brief Combine BasicBlocks
    * @param the BasicBlock we are considering
@@ -868,7 +879,6 @@ class MIRGraph {
   RegLocation* reg_location_;                         // Map SSA names to location.
   SafeMap<unsigned int, unsigned int> block_id_map_;  // Block collapse lookup cache.
 
-  static const uint64_t oat_data_flow_attributes_[kMirOpLast];
   static const char* extended_mir_op_names_[kMirOpLast - kMirOpFirst];
   static const uint32_t analysis_attributes_[kMirOpLast];
 
@@ -882,7 +892,7 @@ class MIRGraph {
   void CompilerInitializeSSAConversion();
   bool DoSSAConversion(BasicBlock* bb);
   bool InvokeUsesMethodStar(MIR* mir);
-  int ParseInsn(const uint16_t* code_ptr, DecodedInstruction* decoded_instruction);
+  int ParseInsn(const uint16_t* code_ptr, MIR::DecodedInstruction* decoded_instruction);
   bool ContentIsInsn(const uint16_t* code_ptr);
   BasicBlock* SplitBlock(DexOffset code_offset, BasicBlock* orig_block,
                          BasicBlock** immed_pred_block_p);
@@ -985,6 +995,7 @@ class MIRGraph {
   GrowableArray<MirIFieldLoweringInfo> ifield_lowering_infos_;
   GrowableArray<MirSFieldLoweringInfo> sfield_lowering_infos_;
   GrowableArray<MirMethodLoweringInfo> method_lowering_infos_;
+  static const uint64_t oat_data_flow_attributes_[kMirOpLast];
 
   friend class ClassInitCheckEliminationTest;
   friend class LocalValueNumberingTest;

@@ -15,6 +15,7 @@
  */
 
 #include "common_runtime_test.h"
+#include "mirror/string-inl.h"
 
 #include <cstdio>
 
@@ -182,13 +183,14 @@ TEST_F(StubTest, Memcpy) {
 #endif
 }
 
-
-#if defined(__i386__) || defined(__arm__)
+#if defined(__i386__) || defined(__arm__) || defined(__x86_64__)
 extern "C" void art_quick_lock_object(void);
 #endif
 
 TEST_F(StubTest, LockObject) {
-#if defined(__i386__) || defined(__arm__)
+#if defined(__i386__) || defined(__arm__) || defined(__x86_64__)
+  static constexpr size_t kThinLockLoops = 100;
+
   Thread* self = Thread::Current();
   // Create an object
   ScopedObjectAccess soa(self);
@@ -206,6 +208,72 @@ TEST_F(StubTest, LockObject) {
   LockWord lock_after = obj->GetLockWord(false);
   LockWord::LockState new_state = lock_after.GetState();
   EXPECT_EQ(LockWord::LockState::kThinLocked, new_state);
+  EXPECT_EQ(lock_after.ThinLockCount(), 0U);  // Thin lock starts count at zero
+
+  for (size_t i = 1; i < kThinLockLoops; ++i) {
+    Invoke3(reinterpret_cast<size_t>(obj.get()), 0U, 0U,
+              reinterpret_cast<uintptr_t>(&art_quick_lock_object), self);
+
+    // Check we're at lock count i
+
+    LockWord l_inc = obj->GetLockWord(false);
+    LockWord::LockState l_inc_state = l_inc.GetState();
+    EXPECT_EQ(LockWord::LockState::kThinLocked, l_inc_state);
+    EXPECT_EQ(l_inc.ThinLockCount(), i);
+  }
+
+  // TODO: Improve this test. Somehow force it to go to fat locked. But that needs another thread.
+
+#else
+  LOG(INFO) << "Skipping lock_object as I don't know how to do that on " << kRuntimeISA;
+  // Force-print to std::cout so it's also outside the logcat.
+  std::cout << "Skipping lock_object as I don't know how to do that on " << kRuntimeISA << std::endl;
+#endif
+}
+
+class RandGen {
+ public:
+  explicit RandGen(uint32_t seed) : val_(seed) {}
+
+  uint32_t next() {
+    val_ = val_ * 48271 % 2147483647 + 13;
+    return val_;
+  }
+
+  uint32_t val_;
+};
+
+
+#if defined(__i386__) || defined(__arm__) || defined(__x86_64__)
+extern "C" void art_quick_lock_object(void);
+extern "C" void art_quick_unlock_object(void);
+#endif
+
+TEST_F(StubTest, UnlockObject) {
+#if defined(__i386__) || defined(__arm__) || defined(__x86_64__)
+  static constexpr size_t kThinLockLoops = 100;
+
+  Thread* self = Thread::Current();
+  // Create an object
+  ScopedObjectAccess soa(self);
+  // garbage is created during ClassLinker::Init
+
+  SirtRef<mirror::String> obj(soa.Self(),
+                              mirror::String::AllocFromModifiedUtf8(soa.Self(), "hello, world!"));
+  LockWord lock = obj->GetLockWord(false);
+  LockWord::LockState old_state = lock.GetState();
+  EXPECT_EQ(LockWord::LockState::kUnlocked, old_state);
+
+  Invoke3(reinterpret_cast<size_t>(obj.get()), 0U, 0U,
+          reinterpret_cast<uintptr_t>(&art_quick_unlock_object), self);
+
+  // This should be an illegal monitor state.
+  EXPECT_TRUE(self->IsExceptionPending());
+  self->ClearException();
+
+  LockWord lock_after = obj->GetLockWord(false);
+  LockWord::LockState new_state = lock_after.GetState();
+  EXPECT_EQ(LockWord::LockState::kUnlocked, new_state);
 
   Invoke3(reinterpret_cast<size_t>(obj.get()), 0U, 0U,
           reinterpret_cast<uintptr_t>(&art_quick_lock_object), self);
@@ -214,12 +282,94 @@ TEST_F(StubTest, LockObject) {
   LockWord::LockState new_state2 = lock_after2.GetState();
   EXPECT_EQ(LockWord::LockState::kThinLocked, new_state2);
 
+  Invoke3(reinterpret_cast<size_t>(obj.get()), 0U, 0U,
+          reinterpret_cast<uintptr_t>(&art_quick_unlock_object), self);
+
+  LockWord lock_after3 = obj->GetLockWord(false);
+  LockWord::LockState new_state3 = lock_after3.GetState();
+  EXPECT_EQ(LockWord::LockState::kUnlocked, new_state3);
+
+  // Stress test:
+  // Keep a number of objects and their locks in flight. Randomly lock or unlock one of them in
+  // each step.
+
+  RandGen r(0x1234);
+
+  constexpr size_t kNumberOfLocks = 10;  // Number of objects = lock
+  constexpr size_t kIterations = 10000;  // Number of iterations
+
+  size_t counts[kNumberOfLocks];
+  SirtRef<mirror::String>* objects[kNumberOfLocks];
+
+  // Initialize = allocate.
+  for (size_t i = 0; i < kNumberOfLocks; ++i) {
+    counts[i] = 0;
+    objects[i] = new SirtRef<mirror::String>(soa.Self(),
+                                             mirror::String::AllocFromModifiedUtf8(soa.Self(), ""));
+  }
+
+  for (size_t i = 0; i < kIterations; ++i) {
+    // Select which lock to update.
+    size_t index = r.next() % kNumberOfLocks;
+
+    bool lock;  // Whether to lock or unlock in this step.
+    if (counts[index] == 0) {
+      lock = true;
+    } else if (counts[index] == kThinLockLoops) {
+      lock = false;
+    } else {
+      // Randomly.
+      lock = r.next() % 2 == 0;
+    }
+
+    if (lock) {
+      Invoke3(reinterpret_cast<size_t>(objects[index]->get()), 0U, 0U,
+              reinterpret_cast<uintptr_t>(&art_quick_lock_object), self);
+      counts[index]++;
+    } else {
+      Invoke3(reinterpret_cast<size_t>(objects[index]->get()), 0U, 0U,
+              reinterpret_cast<uintptr_t>(&art_quick_unlock_object), self);
+      counts[index]--;
+    }
+
+    EXPECT_FALSE(self->IsExceptionPending());
+
+    // Check the new state.
+    LockWord lock_iter = objects[index]->get()->GetLockWord(false);
+    LockWord::LockState iter_state = lock_iter.GetState();
+    if (counts[index] > 0) {
+      EXPECT_EQ(LockWord::LockState::kThinLocked, iter_state);
+      EXPECT_EQ(counts[index] - 1, lock_iter.ThinLockCount());
+    } else {
+      EXPECT_EQ(LockWord::LockState::kUnlocked, iter_state);
+    }
+  }
+
+  // Unlock the remaining count times and then check it's unlocked. Then deallocate.
+  // Go reverse order to correctly handle SirtRefs.
+  for (size_t i = 0; i < kNumberOfLocks; ++i) {
+    size_t index = kNumberOfLocks - 1 - i;
+    size_t count = counts[index];
+    while (count > 0) {
+      Invoke3(reinterpret_cast<size_t>(objects[index]->get()), 0U, 0U,
+              reinterpret_cast<uintptr_t>(&art_quick_unlock_object), self);
+
+      count--;
+    }
+
+    LockWord lock_after4 = objects[index]->get()->GetLockWord(false);
+    LockWord::LockState new_state4 = lock_after4.GetState();
+    EXPECT_EQ(LockWord::LockState::kUnlocked, new_state4);
+
+    delete objects[index];
+  }
+
   // TODO: Improve this test. Somehow force it to go to fat locked. But that needs another thread.
 
 #else
-  LOG(INFO) << "Skipping lock_object as I don't know how to do that on " << kRuntimeISA;
+  LOG(INFO) << "Skipping unlock_object as I don't know how to do that on " << kRuntimeISA;
   // Force-print to std::cout so it's also outside the logcat.
-  std::cout << "Skipping lock_object as I don't know how to do that on " << kRuntimeISA << std::endl;
+  std::cout << "Skipping unlock_object as I don't know how to do that on " << kRuntimeISA << std::endl;
 #endif
 }
 
@@ -630,6 +780,104 @@ TEST_F(StubTest, AllocObjectArray) {
   LOG(INFO) << "Skipping alloc_array as I don't know how to do that on " << kRuntimeISA;
   // Force-print to std::cout so it's also outside the logcat.
   std::cout << "Skipping alloc_array as I don't know how to do that on " << kRuntimeISA << std::endl;
+#endif
+}
+
+
+#if defined(__i386__) || defined(__arm__) || defined(__x86_64__)
+extern "C" void art_quick_string_compareto(void);
+#endif
+
+TEST_F(StubTest, StringCompareTo) {
+  TEST_DISABLED_FOR_HEAP_REFERENCE_POISONING();
+
+#if defined(__i386__) || defined(__arm__) || defined(__x86_64__)
+  // TODO: Check the "Unresolved" allocation stubs
+
+  Thread* self = Thread::Current();
+  ScopedObjectAccess soa(self);
+  // garbage is created during ClassLinker::Init
+
+  // Create some strings
+  // Use array so we can index into it and use a matrix for expected results
+  // Setup: The first half is standard. The second half uses a non-zero offset.
+  // TODO: Shared backing arrays.
+  constexpr size_t base_string_count = 7;
+  const char* c[base_string_count] = { "", "", "a", "aa", "ab", "aac", "aac" , };
+
+  constexpr size_t string_count = 2 * base_string_count;
+
+  SirtRef<mirror::String>* s[string_count];
+
+  for (size_t i = 0; i < base_string_count; ++i) {
+    s[i] = new SirtRef<mirror::String>(soa.Self(), mirror::String::AllocFromModifiedUtf8(soa.Self(),
+                                                                                         c[i]));
+  }
+
+  RandGen r(0x1234);
+
+  for (size_t i = base_string_count; i < string_count; ++i) {
+    s[i] = new SirtRef<mirror::String>(soa.Self(), mirror::String::AllocFromModifiedUtf8(soa.Self(),
+                                                                         c[i - base_string_count]));
+    int32_t length = s[i]->get()->GetLength();
+    if (length > 1) {
+      // Set a random offset and length.
+      int32_t new_offset = 1 + (r.next() % (length - 1));
+      int32_t rest = length - new_offset - 1;
+      int32_t new_length = 1 + (rest > 0 ? r.next() % rest : 0);
+
+      s[i]->get()->SetField32<false>(mirror::String::CountOffset(), new_length);
+      s[i]->get()->SetField32<false>(mirror::String::OffsetOffset(), new_offset);
+    }
+  }
+
+  // TODO: wide characters
+
+  // Matrix of expectations. First component is first parameter. Note we only check against the
+  // sign, not the value. As we are testing random offsets, we need to compute this and need to
+  // rely on String::CompareTo being correct.
+  int32_t expected[string_count][string_count];
+  for (size_t x = 0; x < string_count; ++x) {
+    for (size_t y = 0; y < string_count; ++y) {
+      expected[x][y] = s[x]->get()->CompareTo(s[y]->get());
+    }
+  }
+
+  // Play with it...
+
+  for (size_t x = 0; x < string_count; ++x) {
+    for (size_t y = 0; y < string_count; ++y) {
+      // Test string_compareto x y
+      size_t result = Invoke3(reinterpret_cast<size_t>(s[x]->get()),
+                              reinterpret_cast<size_t>(s[y]->get()), 0U,
+                              reinterpret_cast<uintptr_t>(&art_quick_string_compareto), self);
+
+      EXPECT_FALSE(self->IsExceptionPending());
+
+      // The result is a 32b signed integer
+      union {
+        size_t r;
+        int32_t i;
+      } conv;
+      conv.r = result;
+      int32_t e = expected[x][y];
+      EXPECT_TRUE(e == 0 ? conv.i == 0 : true) << "x=" << c[x] << " y=" << c[y] << " res=" <<
+          conv.r;
+      EXPECT_TRUE(e < 0 ? conv.i < 0 : true)   << "x=" << c[x] << " y="  << c[y] << " res=" <<
+          conv.r;
+      EXPECT_TRUE(e > 0 ? conv.i > 0 : true)   << "x=" << c[x] << " y=" << c[y] << " res=" <<
+          conv.r;
+    }
+  }
+
+  // TODO: Deallocate things.
+
+  // Tests done.
+#else
+  LOG(INFO) << "Skipping string_compareto as I don't know how to do that on " << kRuntimeISA;
+  // Force-print to std::cout so it's also outside the logcat.
+  std::cout << "Skipping string_compareto as I don't know how to do that on " << kRuntimeISA <<
+      std::endl;
 #endif
 }
 

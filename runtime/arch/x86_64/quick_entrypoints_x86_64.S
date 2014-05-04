@@ -661,13 +661,61 @@ TWO_ARG_DOWNCALL art_quick_initialize_type_and_verify_access, artInitializeTypeA
 TWO_ARG_DOWNCALL art_quick_handle_fill_data, artHandleFillArrayDataFromCode, RETURN_IF_EAX_ZERO
 
 DEFINE_FUNCTION art_quick_lock_object
-    int3
-    int3
+    testl %edi, %edi                      // Null check object/rdi.
+    jz   .Lslow_lock
+.Lretry_lock:
+    movl LOCK_WORD_OFFSET(%edi), %ecx     // ecx := lock word.
+    test LITERAL(0xC0000000), %ecx        // Test the 2 high bits.
+    jne  .Lslow_lock                      // Slow path if either of the two high bits are set.
+    movl %gs:THREAD_ID_OFFSET, %edx       // edx := thread id
+    test %ecx, %ecx
+    jnz  .Lalready_thin                   // Lock word contains a thin lock.
+    // unlocked case - %edx holds thread id with count of 0
+    xor  %eax, %eax                       // eax == 0 for comparison with lock word in cmpxchg
+    lock cmpxchg  %edx, LOCK_WORD_OFFSET(%edi)
+    jnz  .Lretry_lock                     // cmpxchg failed retry
+    ret
+.Lalready_thin:
+    cmpw %cx, %dx                         // do we hold the lock already?
+    jne  .Lslow_lock
+    addl LITERAL(65536), %ecx             // increment recursion count
+    test LITERAL(0xC0000000), %ecx        // overflowed if either of top two bits are set
+    jne  .Lslow_lock                      // count overflowed so go slow
+    movl %ecx, LOCK_WORD_OFFSET(%edi)     // update lockword, cmpxchg not necessary as we hold lock
+    ret
+.Lslow_lock:
+    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
+    movq %gs:THREAD_SELF_OFFSET, %rsi     // pass Thread::Current()
+    movq %rsp, %rdx                       // pass SP
+    call PLT_SYMBOL(artLockObjectFromCode)  // artLockObjectFromCode(object, Thread*, SP)
+    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME    // restore frame up to return address
+    RETURN_IF_EAX_ZERO
 END_FUNCTION art_quick_lock_object
 
 DEFINE_FUNCTION art_quick_unlock_object
-    int3
-    int3
+    testl %edi, %edi                      // null check object/edi
+    jz   .Lslow_unlock
+    movl LOCK_WORD_OFFSET(%edi), %ecx     // ecx := lock word
+    movl %gs:THREAD_ID_OFFSET, %edx       // edx := thread id
+    test %ecx, %ecx
+    jb   .Lslow_unlock                    // lock word contains a monitor
+    cmpw %cx, %dx                         // does the thread id match?
+    jne  .Lslow_unlock
+    cmpl LITERAL(65536), %ecx
+    jae  .Lrecursive_thin_unlock
+    movl LITERAL(0), LOCK_WORD_OFFSET(%edi)
+    ret
+.Lrecursive_thin_unlock:
+    subl LITERAL(65536), %ecx
+    mov  %ecx, LOCK_WORD_OFFSET(%edi)
+    ret
+.Lslow_unlock:
+    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
+    movq %gs:THREAD_SELF_OFFSET, %rsi     // pass Thread::Current()
+    movq %rsp, %rdx                       // pass SP
+    call PLT_SYMBOL(artUnlockObjectFromCode)  // artUnlockObjectFromCode(object, Thread*, SP)
+    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME    // restore frame up to return address
+    RETURN_IF_EAX_ZERO
 END_FUNCTION art_quick_unlock_object
 
 DEFINE_FUNCTION art_quick_is_assignable
@@ -1169,5 +1217,47 @@ UNIMPLEMENTED art_quick_instrumentation_exit
 UNIMPLEMENTED art_quick_deoptimize
 
 UNIMPLEMENTED art_quick_indexof
-UNIMPLEMENTED art_quick_string_compareto
+
+    /*
+     * String's compareTo.
+     *
+     * On entry:
+     *    rdi:   this string object (known non-null)
+     *    rsi:   comp string object (known non-null)
+     */
+DEFINE_FUNCTION art_quick_string_compareto
+    movl STRING_COUNT_OFFSET(%edi), %r8d
+    movl STRING_COUNT_OFFSET(%esi), %r9d
+    movl STRING_VALUE_OFFSET(%edi), %r10d
+    movl STRING_VALUE_OFFSET(%esi), %r11d
+    movl STRING_OFFSET_OFFSET(%edi), %eax
+    movl STRING_OFFSET_OFFSET(%esi), %ecx
+    /* Build pointers to the start of string data */
+    leal STRING_DATA_OFFSET(%r10d, %eax, 2), %esi
+    leal STRING_DATA_OFFSET(%r11d, %ecx, 2), %edi
+    /* Calculate min length and count diff */
+    movl  %r8d, %ecx
+    movl  %r8d, %eax
+    subl  %r9d, %eax
+    cmovg %r9d, %ecx
+    /*
+     * At this point we have:
+     *   eax: value to return if first part of strings are equal
+     *   ecx: minimum among the lengths of the two strings
+     *   esi: pointer to this string data
+     *   edi: pointer to comp string data
+     */
+    jecxz .Lkeep_length
+    repe cmpsw                    // find nonmatching chars in [%esi] and [%edi], up to length %ecx
+    jne .Lnot_equal
+.Lkeep_length:
+    ret
+    .balign 16
+.Lnot_equal:
+    movzwl  -2(%esi), %eax        // get last compared char from this string
+    movzwl  -2(%edi), %ecx        // get last compared char from comp string
+    subl  %ecx, %eax              // return the difference
+    ret
+END_FUNCTION art_quick_string_compareto
+
 UNIMPLEMENTED art_quick_memcmp16
