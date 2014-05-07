@@ -142,8 +142,10 @@ void X86Mir2Lir::OpRegCopyWide(RegStorage r_dest, RegStorage r_src) {
     } else {
       if (src_fp) {
         NewLIR2(kX86MovdrxRR, r_dest.GetLowReg(), r_src.GetReg());
-        NewLIR2(kX86PsrlqRI, r_src.GetReg(), 32);
-        NewLIR2(kX86MovdrxRR, r_dest.GetHighReg(), r_src.GetReg());
+        RegStorage temp_reg = AllocTempDouble();
+        NewLIR2(kX86MovsdRR, temp_reg.GetReg(), r_src.GetReg());
+        NewLIR2(kX86PsrlqRI, temp_reg.GetReg(), 32);
+        NewLIR2(kX86MovdrxRR, r_dest.GetHighReg(), temp_reg.GetReg());
       } else {
         DCHECK(r_dest.IsPair());
         DCHECK(r_src.IsPair());
@@ -688,14 +690,12 @@ bool X86Mir2Lir::GenInlinedPeek(CallInfo* info, OpSize size) {
   RegLocation rl_dest = size == k64 ? InlineTargetWide(info) : InlineTarget(info);
   RegLocation rl_address = LoadValue(rl_src_address, kCoreReg);
   RegLocation rl_result = EvalLoc(rl_dest, kCoreReg, true);
+  // Unaligned access is allowed on x86.
+  LoadBaseDisp(rl_address.reg, 0, rl_result.reg, size);
   if (size == k64) {
-    // Unaligned access is allowed on x86.
-    LoadBaseDispWide(rl_address.reg, 0, rl_result.reg, INVALID_SREG);
     StoreValueWide(rl_dest, rl_result);
   } else {
     DCHECK(size == kSignedByte || size == kSignedHalf || size == k32);
-    // Unaligned access is allowed on x86.
-    LoadBaseDisp(rl_address.reg, 0, rl_result.reg, size, INVALID_SREG);
     StoreValue(rl_dest, rl_result);
   }
   return true;
@@ -709,7 +709,7 @@ bool X86Mir2Lir::GenInlinedPoke(CallInfo* info, OpSize size) {
   if (size == k64) {
     // Unaligned access is allowed on x86.
     RegLocation rl_value = LoadValueWide(rl_src_value, kCoreReg);
-    StoreBaseDispWide(rl_address.reg, 0, rl_value.reg);
+    StoreBaseDisp(rl_address.reg, 0, rl_value.reg, size);
   } else {
     DCHECK(size == kSignedByte || size == kSignedHalf || size == k32);
     // Unaligned access is allowed on x86.
@@ -1007,7 +1007,7 @@ void X86Mir2Lir::GenImulMemImm(RegStorage dest, int sreg, int displacement, int 
       NewLIR2(kX86Xor32RR, dest.GetReg(), dest.GetReg());
       break;
     case 1:
-      LoadBaseDisp(rs_rX86_SP, displacement, dest, k32, sreg);
+      LoadBaseDisp(rs_rX86_SP, displacement, dest, k32);
       break;
     default:
       m = NewLIR4(IS_SIMM8(val) ? kX86Imul32RMI8 : kX86Imul32RMI, dest.GetReg(),
@@ -1111,8 +1111,7 @@ void X86Mir2Lir::GenMulLong(Instruction::Code, RegLocation rl_dest, RegLocation 
   if (src1_in_reg) {
     NewLIR2(kX86Mov32RR, rs_r1.GetReg(), rl_src1.reg.GetHighReg());
   } else {
-    LoadBaseDisp(rs_rX86_SP, SRegOffset(rl_src1.s_reg_low) + HIWORD_OFFSET, rs_r1,
-                 k32, GetSRegHi(rl_src1.s_reg_low));
+    LoadBaseDisp(rs_rX86_SP, SRegOffset(rl_src1.s_reg_low) + HIWORD_OFFSET, rs_r1, k32);
   }
 
   if (is_square) {
@@ -1135,8 +1134,7 @@ void X86Mir2Lir::GenMulLong(Instruction::Code, RegLocation rl_dest, RegLocation 
     if (src2_in_reg) {
       NewLIR2(kX86Mov32RR, rs_r0.GetReg(), rl_src2.reg.GetHighReg());
     } else {
-      LoadBaseDisp(rs_rX86_SP, SRegOffset(rl_src2.s_reg_low) + HIWORD_OFFSET, rs_r0,
-                   k32, GetSRegHi(rl_src2.s_reg_low));
+      LoadBaseDisp(rs_rX86_SP, SRegOffset(rl_src2.s_reg_low) + HIWORD_OFFSET, rs_r0, k32);
     }
 
     // EAX <- EAX * 1L  (2H * 1L)
@@ -1169,8 +1167,7 @@ void X86Mir2Lir::GenMulLong(Instruction::Code, RegLocation rl_dest, RegLocation 
   if (src2_in_reg) {
     NewLIR2(kX86Mov32RR, rs_r0.GetReg(), rl_src2.reg.GetLowReg());
   } else {
-    LoadBaseDisp(rs_rX86_SP, SRegOffset(rl_src2.s_reg_low) + LOWORD_OFFSET, rs_r0,
-                 k32, rl_src2.s_reg_low);
+    LoadBaseDisp(rs_rX86_SP, SRegOffset(rl_src2.s_reg_low) + LOWORD_OFFSET, rs_r0, k32);
   }
 
   // EDX:EAX <- 2L * 1L (double precision)
@@ -1419,8 +1416,7 @@ void X86Mir2Lir::GenArrayGet(int opt_flags, OpSize size, RegLocation rl_array,
     }
   }
   rl_result = EvalLoc(rl_dest, reg_class, true);
-  LoadBaseIndexedDisp(rl_array.reg, rl_index.reg, scale, data_offset, rl_result.reg, size,
-                      INVALID_SREG);
+  LoadBaseIndexedDisp(rl_array.reg, rl_index.reg, scale, data_offset, rl_result.reg, size);
   if ((size == k64) || (size == kDouble)) {
     StoreValueWide(rl_dest, rl_result);
   } else {
@@ -1477,10 +1473,9 @@ void X86Mir2Lir::GenArrayPut(int opt_flags, OpSize size, RegLocation rl_array,
       rl_src.reg.GetRegNum() >= rs_rX86_SP.GetRegNum()) {
     RegStorage temp = AllocTemp();
     OpRegCopy(temp, rl_src.reg);
-    StoreBaseIndexedDisp(rl_array.reg, rl_index.reg, scale, data_offset, temp, size, INVALID_SREG);
+    StoreBaseIndexedDisp(rl_array.reg, rl_index.reg, scale, data_offset, temp, size);
   } else {
-    StoreBaseIndexedDisp(rl_array.reg, rl_index.reg, scale, data_offset, rl_src.reg, size,
-                         INVALID_SREG);
+    StoreBaseIndexedDisp(rl_array.reg, rl_index.reg, scale, data_offset, rl_src.reg, size);
   }
   if (card_mark) {
     // Free rl_index if its a temp. Ensures there are 2 free regs for card mark.

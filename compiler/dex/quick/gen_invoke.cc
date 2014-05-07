@@ -791,7 +791,7 @@ int Mir2Lir::GenDalvikArgsNoRange(CallInfo* info,
       }
       int outs_offset = (next_use + 1) * 4;
       if (rl_arg.wide) {
-        StoreBaseDispWide(TargetReg(kSp), outs_offset, arg_reg);
+        StoreBaseDisp(TargetReg(kSp), outs_offset, arg_reg, k64);
         next_use += 2;
       } else {
         Store32Disp(TargetReg(kSp), outs_offset, arg_reg);
@@ -859,7 +859,7 @@ int Mir2Lir::GenDalvikArgsRange(CallInfo* info, int call_state,
     if (loc.wide) {
       loc = UpdateLocWide(loc);
       if ((next_arg >= 2) && (loc.location == kLocPhysReg)) {
-        StoreBaseDispWide(TargetReg(kSp), SRegOffset(loc.s_reg_low), loc.reg);
+        StoreBaseDisp(TargetReg(kSp), SRegOffset(loc.s_reg_low), loc.reg, k64);
       }
       next_arg += 2;
     } else {
@@ -1133,8 +1133,7 @@ bool Mir2Lir::GenInlinedCharAt(CallInfo* info) {
   if (cu_->instruction_set != kX86 && cu_->instruction_set != kX86_64) {
     LoadBaseIndexed(reg_ptr, reg_off, rl_result.reg, 1, kUnsignedHalf);
   } else {
-    LoadBaseIndexedDisp(reg_ptr, reg_off, 1, data_offset, rl_result.reg, kUnsignedHalf,
-                        INVALID_SREG);
+    LoadBaseIndexedDisp(reg_ptr, reg_off, 1, data_offset, rl_result.reg, kUnsignedHalf);
   }
   FreeTemp(reg_off);
   FreeTemp(reg_ptr);
@@ -1429,11 +1428,11 @@ bool Mir2Lir::GenInlinedUnsafeGet(CallInfo* info,
   RegLocation rl_result = EvalLoc(rl_dest, kCoreReg, true);
   if (is_long) {
     if (cu_->instruction_set == kX86) {
-      LoadBaseIndexedDisp(rl_object.reg, rl_offset.reg, 0, 0, rl_result.reg, k64, INVALID_SREG);
+      LoadBaseIndexedDisp(rl_object.reg, rl_offset.reg, 0, 0, rl_result.reg, k64);
     } else {
       RegStorage rl_temp_offset = AllocTemp();
       OpRegRegReg(kOpAdd, rl_temp_offset, rl_object.reg, rl_offset.reg);
-      LoadBaseDispWide(rl_temp_offset, 0, rl_result.reg, INVALID_SREG);
+      LoadBaseDisp(rl_temp_offset, 0, rl_result.reg, k64);
       FreeTemp(rl_temp_offset);
     }
   } else {
@@ -1476,11 +1475,11 @@ bool Mir2Lir::GenInlinedUnsafePut(CallInfo* info, bool is_long,
   if (is_long) {
     rl_value = LoadValueWide(rl_src_value, kCoreReg);
     if (cu_->instruction_set == kX86) {
-      StoreBaseIndexedDisp(rl_object.reg, rl_offset.reg, 0, 0, rl_value.reg, k64, INVALID_SREG);
+      StoreBaseIndexedDisp(rl_object.reg, rl_offset.reg, 0, 0, rl_value.reg, k64);
     } else {
       RegStorage rl_temp_offset = AllocTemp();
       OpRegRegReg(kOpAdd, rl_temp_offset, rl_object.reg, rl_offset.reg);
-      StoreBaseDispWide(rl_temp_offset, 0, rl_value.reg);
+      StoreBaseDisp(rl_temp_offset, 0, rl_value.reg, k64);
       FreeTemp(rl_temp_offset);
     }
   } else {

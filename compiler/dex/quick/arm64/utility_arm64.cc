@@ -825,7 +825,7 @@ LIR* Arm64Mir2Lir::StoreBaseIndexed(RegStorage r_base, RegStorage r_index, RegSt
  * performing null check, incoming MIR can be null.
  */
 LIR* Arm64Mir2Lir::LoadBaseDispBody(RegStorage r_base, int displacement, RegStorage r_dest,
-                                  OpSize size, int s_reg) {
+                                    OpSize size) {
   LIR* load = NULL;
   ArmOpcode opcode = kThumbBkpt;
   bool short_form = false;
@@ -850,9 +850,9 @@ LIR* Arm64Mir2Lir::LoadBaseDispBody(RegStorage r_base, int displacement, RegStor
           load = NewLIR4(kThumb2LdrdI8, r_dest.GetLowReg(), r_dest.GetHighReg(), r_base.GetReg(),
                          displacement >> 2);
         } else {
-          load = LoadBaseDispBody(r_base, displacement, r_dest.GetLow(), k32, s_reg);
+          load = LoadBaseDispBody(r_base, displacement, r_dest.GetLow(), k32);
           null_pointer_safepoint = true;
-          LoadBaseDispBody(r_base, displacement + 4, r_dest.GetHigh(), k32, INVALID_SREG);
+          LoadBaseDispBody(r_base, displacement + 4, r_dest.GetHigh(), k32);
         }
         already_generated = true;
       }
@@ -935,7 +935,7 @@ LIR* Arm64Mir2Lir::LoadBaseDispBody(RegStorage r_base, int displacement, RegStor
       if (r_dest.IsFloat()) {
         // No index ops - must use a long sequence.  Turn the offset into a direct pointer.
         OpRegReg(kOpAdd, reg_offset, r_base);
-        load = LoadBaseDispBody(reg_offset, 0, r_dest, size, s_reg);
+        load = LoadBaseDispBody(reg_offset, 0, r_dest, size);
       } else {
         load = LoadBaseIndexed(r_base, reg_offset, r_dest, 0, size);
       }
@@ -955,19 +955,13 @@ LIR* Arm64Mir2Lir::LoadBaseDispBody(RegStorage r_base, int displacement, RegStor
   return load;
 }
 
-LIR* Arm64Mir2Lir::LoadBaseDisp(RegStorage r_base, int displacement, RegStorage r_dest, OpSize size,
-                              int s_reg) {
-  DCHECK(!((size == k64) || (size == kDouble)));
+LIR* Arm64Mir2Lir::LoadBaseDisp(RegStorage r_base, int displacement, RegStorage r_dest,
+                                OpSize size) {
   // TODO: base this on target.
   if (size == kWord) {
     size = k32;
   }
-  return LoadBaseDispBody(r_base, displacement, r_dest, size, s_reg);
-}
-
-LIR* Arm64Mir2Lir::LoadBaseDispWide(RegStorage r_base, int displacement, RegStorage r_dest,
-                                  int s_reg) {
-  return LoadBaseDispBody(r_base, displacement, r_dest, k64, s_reg);
+  return LoadBaseDispBody(r_base, displacement, r_dest, size);
 }
 
 
@@ -1091,12 +1085,7 @@ LIR* Arm64Mir2Lir::StoreBaseDisp(RegStorage r_base, int displacement, RegStorage
   if (size == kWord) {
     size = k32;
   }
-  DCHECK(!((size == k64) || (size == kDouble)));
   return StoreBaseDispBody(r_base, displacement, r_src, size);
-}
-
-LIR* Arm64Mir2Lir::StoreBaseDispWide(RegStorage r_base, int displacement, RegStorage r_src) {
-  return StoreBaseDispBody(r_base, displacement, r_src, k64);
 }
 
 LIR* Arm64Mir2Lir::OpFpRegCopy(RegStorage r_dest, RegStorage r_src) {
@@ -1130,7 +1119,7 @@ LIR* Arm64Mir2Lir::OpMem(OpKind op, RegStorage r_base, int disp) {
 }
 
 LIR* Arm64Mir2Lir::StoreBaseIndexedDisp(RegStorage r_base, RegStorage r_index, int scale,
-                                      int displacement, RegStorage r_src, OpSize size, int s_reg) {
+                                      int displacement, RegStorage r_src, OpSize size) {
   LOG(FATAL) << "Unexpected use of StoreBaseIndexedDisp for Arm";
   return NULL;
 }
@@ -1141,7 +1130,7 @@ LIR* Arm64Mir2Lir::OpRegMem(OpKind op, RegStorage r_dest, RegStorage r_base, int
 }
 
 LIR* Arm64Mir2Lir::LoadBaseIndexedDisp(RegStorage r_base, RegStorage r_index, int scale,
-                                     int displacement, RegStorage r_dest, OpSize size, int s_reg) {
+                                       int displacement, RegStorage r_dest, OpSize size) {
   LOG(FATAL) << "Unexpected use of LoadBaseIndexedDisp for Arm";
   return NULL;
 }

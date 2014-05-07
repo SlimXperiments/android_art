@@ -43,7 +43,8 @@ BitVector::BitVector(uint32_t start_bits,
   : allocator_(allocator),
     expandable_(expandable),
     storage_size_(storage_size),
-    storage_(storage) {
+    storage_(storage),
+    number_of_bits_(start_bits) {
   DCHECK_EQ(sizeof(*storage_), 4U);  // Assuming 32-bit units.
   if (storage_ == nullptr) {
     storage_size_ = BitsToWords(start_bits);
@@ -93,6 +94,7 @@ void BitVector::SetBit(uint32_t num) {
     // TOTO: collect stats on space wasted because of resize.
     storage_ = new_storage;
     storage_size_ = new_size;
+    number_of_bits_ = num;
   }
 
   storage_[num >> 5] |= check_masks[num & 0x1f];
@@ -113,23 +115,24 @@ bool BitVector::SameBitsSet(const BitVector *src) {
 
   // If the highest bit set is different, we are different.
   if (our_highest != src_highest) {
-    return true;
+    return false;
   }
 
   // If the highest bit set is -1, both are cleared, we are the same.
   // If the highest bit set is 0, both have a unique bit set, we are the same.
-  if (our_highest >= 0) {
+  if (our_highest <= 0) {
     return true;
   }
 
-  // Get the highest bit set's cell's index.
-  int our_highest_index = (our_highest >> 5);
+  // Get the highest bit set's cell's index
+  // No need of highest + 1 here because it can't be 0 so BitsToWords will work here.
+  int our_highest_index = BitsToWords(our_highest);
 
   // This memcmp is enough: we know that the highest bit set is the same for both:
   //   - Therefore, min_size goes up to at least that, we are thus comparing at least what we need to, but not less.
   //      ie. we are comparing all storage cells that could have difference, if both vectors have cells above our_highest_index,
   //          they are automatically at 0.
-  return (memcmp(storage_, src->GetRawStorage(), our_highest_index * sizeof(*storage_)) != 0);
+  return (memcmp(storage_, src->GetRawStorage(), our_highest_index * sizeof(*storage_)) == 0);
 }
 
 // Intersect with another bit vector.
@@ -156,13 +159,14 @@ void BitVector::Intersect(const BitVector* src) {
 /*
  * Union with another bit vector.
  */
-void BitVector::Union(const BitVector* src) {
+bool BitVector::Union(const BitVector* src) {
   // Get the highest bit to determine how much we need to expand.
   int highest_bit = src->GetHighestBitSet();
+  bool changed = false;
 
   // If src has no bit set, we are done: there is no need for a union with src.
   if (highest_bit == -1) {
-    return;
+    return changed;
   }
 
   // Update src_size to how many cells we actually care about: where the bit is + 1.
@@ -170,6 +174,8 @@ void BitVector::Union(const BitVector* src) {
 
   // Is the storage size smaller than src's?
   if (storage_size_ < src_size) {
+    changed = true;
+
     // Set it to reallocate.
     SetBit(highest_bit);
 
@@ -178,8 +184,62 @@ void BitVector::Union(const BitVector* src) {
   }
 
   for (uint32_t idx = 0; idx < src_size; idx++) {
-    storage_[idx] |= src->GetRawStorageWord(idx);
+    uint32_t existing = storage_[idx];
+    uint32_t update = existing | src->GetRawStorageWord(idx);
+    if (existing != update) {
+      changed = true;
+      storage_[idx] = update;
+    }
   }
+  return changed;
+}
+
+bool BitVector::UnionIfNotIn(const BitVector* union_with, const BitVector* not_in) {
+  // Get the highest bit to determine how much we need to expand.
+  int highest_bit = union_with->GetHighestBitSet();
+  bool changed = false;
+
+  // If src has no bit set, we are done: there is no need for a union with src.
+  if (highest_bit == -1) {
+    return changed;
+  }
+
+  // Update union_with_size to how many cells we actually care about: where the bit is + 1.
+  uint32_t union_with_size = BitsToWords(highest_bit + 1);
+
+  // Is the storage size smaller than src's?
+  if (storage_size_ < union_with_size) {
+    changed = true;
+
+    // Set it to reallocate.
+    SetBit(highest_bit);
+
+    // Paranoid: storage size should be big enough to hold this bit now.
+    DCHECK_LT(static_cast<uint32_t> (highest_bit), storage_size_ * sizeof(*(storage_)) * 8);
+  }
+
+  uint32_t not_in_size = not_in->GetStorageSize();
+
+  uint32_t idx = 0;
+  for (; idx < std::min(not_in_size, union_with_size); idx++) {
+    uint32_t existing = storage_[idx];
+    uint32_t update = existing |
+        (union_with->GetRawStorageWord(idx) & ~not_in->GetRawStorageWord(idx));
+    if (existing != update) {
+      changed = true;
+      storage_[idx] = update;
+    }
+  }
+
+  for (; idx < union_with_size; idx++) {
+    uint32_t existing = storage_[idx];
+    uint32_t update = existing | union_with->GetRawStorageWord(idx);
+    if (existing != update) {
+      changed = true;
+      storage_[idx] = update;
+    }
+  }
+  return changed;
 }
 
 void BitVector::Subtract(const BitVector *src) {
@@ -342,7 +402,7 @@ uint32_t BitVector::NumSetBits(const uint32_t* storage, uint32_t end) {
 void BitVector::Dump(std::ostream& os, const char *prefix) {
   std::ostringstream buffer;
   DumpHelper(buffer, prefix);
-  os << buffer << std::endl;
+  os << buffer.str() << std::endl;
 }
 
 void BitVector::DumpDot(FILE* file, const char* prefix, bool last_entry) {
@@ -367,13 +427,11 @@ void BitVector::DumpHelper(std::ostringstream& buffer, const char* prefix) {
     buffer << prefix;
   }
 
-  int max = GetHighestBitSet();
-
-  for (int i = 0; i <= max; i++) {
-    if (IsBitSet(i)) {
-      buffer << i << " ";
-    }
+  buffer << '(';
+  for (size_t i = 0; i < number_of_bits_; i++) {
+    buffer << IsBitSet(i);
   }
+  buffer << ')';
 }
 
 }  // namespace art
