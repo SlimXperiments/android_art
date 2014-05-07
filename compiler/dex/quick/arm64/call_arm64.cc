@@ -16,8 +16,8 @@
 
 /* This file contains codegen for the Thumb2 ISA. */
 
-#include "arm_lir.h"
-#include "codegen_arm.h"
+#include "arm64_lir.h"
+#include "codegen_arm64.h"
 #include "dex/quick/mir_to_lir-inl.h"
 #include "entrypoints/quick/quick_entrypoints.h"
 
@@ -42,7 +42,7 @@ namespace art {
  *   add   rARM_PC, r_disp   ; This is the branch from which we compute displacement
  *   cbnz  r_idx, lp
  */
-void ArmMir2Lir::GenSparseSwitch(MIR* mir, uint32_t table_offset,
+void Arm64Mir2Lir::GenSparseSwitch(MIR* mir, uint32_t table_offset,
                                  RegLocation rl_src) {
   const uint16_t* table = cu_->insns + current_dalvik_offset_ + table_offset;
   if (cu_->verbose) {
@@ -91,7 +91,7 @@ void ArmMir2Lir::GenSparseSwitch(MIR* mir, uint32_t table_offset,
 }
 
 
-void ArmMir2Lir::GenPackedSwitch(MIR* mir, uint32_t table_offset,
+void Arm64Mir2Lir::GenPackedSwitch(MIR* mir, uint32_t table_offset,
                                  RegLocation rl_src) {
   const uint16_t* table = cu_->insns + current_dalvik_offset_ + table_offset;
   if (cu_->verbose) {
@@ -148,7 +148,7 @@ void ArmMir2Lir::GenPackedSwitch(MIR* mir, uint32_t table_offset,
  *
  * Total size is 4+(width * size + 1)/2 16-bit code units.
  */
-void ArmMir2Lir::GenFillArrayData(uint32_t table_offset, RegLocation rl_src) {
+void Arm64Mir2Lir::GenFillArrayData(uint32_t table_offset, RegLocation rl_src) {
   const uint16_t* table = cu_->insns + current_dalvik_offset_ + table_offset;
   // Add the table to the list - we'll process it later
   FillArrayData *tab_rec =
@@ -177,7 +177,7 @@ void ArmMir2Lir::GenFillArrayData(uint32_t table_offset, RegLocation rl_src) {
  * Handle unlocked -> thin locked transition inline or else call out to quick entrypoint. For more
  * details see monitor.cc.
  */
-void ArmMir2Lir::GenMonitorEnter(int opt_flags, RegLocation rl_src) {
+void Arm64Mir2Lir::GenMonitorEnter(int opt_flags, RegLocation rl_src) {
   FlushAllRegs();
   // FIXME: need separate LoadValues for object references.
   LoadValueDirectFixed(rl_src, rs_r0);  // Get obj
@@ -248,7 +248,7 @@ void ArmMir2Lir::GenMonitorEnter(int opt_flags, RegLocation rl_src) {
  * details see monitor.cc. Note the code below doesn't use ldrex/strex as the code holds the lock
  * and can only give away ownership if its suspended.
  */
-void ArmMir2Lir::GenMonitorExit(int opt_flags, RegLocation rl_src) {
+void Arm64Mir2Lir::GenMonitorExit(int opt_flags, RegLocation rl_src) {
   FlushAllRegs();
   LoadValueDirectFixed(rl_src, rs_r0);  // Get obj
   LockCallTemps();  // Prepare for explicit register usage
@@ -308,7 +308,7 @@ void ArmMir2Lir::GenMonitorExit(int opt_flags, RegLocation rl_src) {
   }
 }
 
-void ArmMir2Lir::GenMoveException(RegLocation rl_dest) {
+void Arm64Mir2Lir::GenMoveException(RegLocation rl_dest) {
   int ex_offset = Thread::ExceptionOffset<4>().Int32Value();
   RegLocation rl_result = EvalLoc(rl_dest, kCoreReg, true);
   RegStorage reset_reg = AllocTemp();
@@ -322,7 +322,7 @@ void ArmMir2Lir::GenMoveException(RegLocation rl_dest) {
 /*
  * Mark garbage collection card. Skip if the value we're storing is null.
  */
-void ArmMir2Lir::MarkGCCard(RegStorage val_reg, RegStorage tgt_addr_reg) {
+void Arm64Mir2Lir::MarkGCCard(RegStorage val_reg, RegStorage tgt_addr_reg) {
   RegStorage reg_card_base = AllocTemp();
   RegStorage reg_card_no = AllocTemp();
   LIR* branch_over = OpCmpImmBranch(kCondEq, val_reg, 0, NULL);
@@ -335,7 +335,7 @@ void ArmMir2Lir::MarkGCCard(RegStorage val_reg, RegStorage tgt_addr_reg) {
   FreeTemp(reg_card_no);
 }
 
-void ArmMir2Lir::GenEntrySequence(RegLocation* ArgLocs, RegLocation rl_method) {
+void Arm64Mir2Lir::GenEntrySequence(RegLocation* ArgLocs, RegLocation rl_method) {
   int spill_count = num_core_spills_ + num_fp_spills_;
   /*
    * On entry, r0, r1, r2 & r3 are live.  Let the register allocation
@@ -360,22 +360,6 @@ void ArmMir2Lir::GenEntrySequence(RegLocation* ArgLocs, RegLocation rl_method) {
     if (Runtime::Current()->ExplicitStackOverflowChecks()) {
       /* Load stack limit */
       Load32Disp(rs_rARM_SELF, Thread::StackEndOffset<4>().Int32Value(), rs_r12);
-    } else {
-      // Implicit stack overflow check.
-      // Generate a load from [sp, #-overflowsize].  If this is in the stack
-      // redzone we will get a segmentation fault.
-      //
-      // Caveat coder: if someone changes the kStackOverflowReservedBytes value
-      // we need to make sure that it's loadable in an immediate field of
-      // a sub instruction.  Otherwise we will get a temp allocation and the
-      // code size will increase.
-      //
-      // This is done before the callee save instructions to avoid any possibility
-      // of these overflowing.  This uses r12 and that's never saved in a callee
-      // save.
-      OpRegRegImm(kOpSub, rs_r12, rs_rARM_SP, Thread::kStackOverflowReservedBytes);
-      Load32Disp(rs_r12, 0, rs_r12);
-      MarkPossibleStackOverflowException();
     }
   }
   /* Spill core callee saves */
@@ -434,8 +418,17 @@ void ArmMir2Lir::GenEntrySequence(RegLocation* ArgLocs, RegLocation rl_method) {
         AddSlowPath(new(arena_)StackOverflowSlowPath(this, branch, false, frame_size_));
       }
     } else {
-      // Implicit stack overflow check has already been done.  Just make room on the
-      // stack for the frame now.
+      // Implicit stack overflow check.
+      // Generate a load from [sp, #-overflowsize].  If this is in the stack
+      // redzone we will get a segmentation fault.
+      //
+      // Caveat coder: if someone changes the kStackOverflowReservedBytes value
+      // we need to make sure that it's loadable in an immediate field of
+      // a sub instruction.  Otherwise we will get a temp allocation and the
+      // code size will increase.
+      OpRegRegImm(kOpSub, rs_r12, rs_rARM_SP, Thread::kStackOverflowReservedBytes);
+      Load32Disp(rs_r12, 0, rs_r12);
+      MarkPossibleStackOverflowException();
       OpRegImm(kOpSub, rs_rARM_SP, frame_size_without_spills);
     }
   } else {
@@ -450,7 +443,7 @@ void ArmMir2Lir::GenEntrySequence(RegLocation* ArgLocs, RegLocation rl_method) {
   FreeTemp(rs_r3);
 }
 
-void ArmMir2Lir::GenExitSequence() {
+void Arm64Mir2Lir::GenExitSequence() {
   int spill_count = num_core_spills_ + num_fp_spills_;
   /*
    * In the exit path, r0/r1 are live - make sure they aren't
@@ -477,7 +470,7 @@ void ArmMir2Lir::GenExitSequence() {
   }
 }
 
-void ArmMir2Lir::GenSpecialExitSequence() {
+void Arm64Mir2Lir::GenSpecialExitSequence() {
   NewLIR1(kThumbBx, rs_rARM_LR.GetReg());
 }
 

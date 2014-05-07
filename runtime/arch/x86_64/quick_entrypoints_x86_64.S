@@ -13,11 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 #include "asm_support_x86_64.S"
-
 // For x86, the CFA is esp+4, the address above the pushed return address on the stack.
-
     /*
      * Macro that sets up the callee save frame to conform with
      * Runtime::CreateCalleeSaveMethod(kSaveAll)
@@ -39,14 +36,12 @@ MACRO0(SETUP_SAVE_ALL_CALLEE_SAVE_FRAME)
     movq RUNTIME_SAVE_ALL_CALLEE_SAVE_FRAME_OFFSET(%r10), %r10
     // Store ArtMethod* to bottom of stack.
     movq %r10, 0(%rsp)
-
     // Ugly compile-time check, but we only have the preprocessor.
     // Last +8: implicit return address pushed on stack when caller made call.
 #if (FRAME_SIZE_SAVE_ALL_CALLEE_SAVE != 6*8 + 8 + 8)
 #error "SAVE_ALL_CALLEE_SAVE_FRAME(X86_64) size not as expected."
 #endif
 END_MACRO
-
     /*
      * Macro that sets up the callee save frame to conform with
      * Runtime::CreateCalleeSaveMethod(kRefsOnly)
@@ -68,14 +63,12 @@ MACRO0(SETUP_REF_ONLY_CALLEE_SAVE_FRAME)
     movq RUNTIME_REFS_ONLY_CALLEE_SAVE_FRAME_OFFSET(%r10), %r10
     // Store ArtMethod* to bottom of stack.
     movq %r10, 0(%rsp)
-
     // Ugly compile-time check, but we only have the preprocessor.
     // Last +8: implicit return address pushed on stack when caller made call.
 #if (FRAME_SIZE_REFS_ONLY_CALLEE_SAVE != 6*8 + 8 + 8)
 #error "REFS_ONLY_CALLEE_SAVE_FRAME(X86_64) size not as expected."
 #endif
 END_MACRO
-
 MACRO0(RESTORE_REF_ONLY_CALLEE_SAVE_FRAME)
     addq MACRO_LITERAL(8), %rsp
     CFI_ADJUST_CFA_OFFSET(-8)
@@ -87,7 +80,6 @@ MACRO0(RESTORE_REF_ONLY_CALLEE_SAVE_FRAME)
     POP r14
     POP r15
 END_MACRO
-
     /*
      * Macro that sets up the callee save frame to conform with
      * Runtime::CreateCalleeSaveMethod(kRefsAndArgs)
@@ -124,14 +116,12 @@ MACRO0(SETUP_REF_AND_ARGS_CALLEE_SAVE_FRAME)
     movq %xmm7, 72(%rsp)
     // Store ArtMethod* to bottom of stack.
     movq %r10, 0(%rsp)
-
     // Ugly compile-time check, but we only have the preprocessor.
     // Last +8: implicit return address pushed on stack when caller made call.
 #if (FRAME_SIZE_REFS_AND_ARGS_CALLEE_SAVE != 11*8 + 80 + 8)
 #error "REFS_AND_ARGS_CALLEE_SAVE_FRAME(X86_64) size not as expected."
 #endif
 END_MACRO
-
 MACRO0(RESTORE_REF_AND_ARGS_CALLEE_SAVE_FRAME)
     // Restore FPRs.
     movq 16(%rsp), %xmm0
@@ -157,8 +147,6 @@ MACRO0(RESTORE_REF_AND_ARGS_CALLEE_SAVE_FRAME)
     POP r14
     POP r15
 END_MACRO
-
-
     /*
      * Macro that set calls through to artDeliverPendingExceptionFromCode, where the pending
      * exception is Thread::Current()->exception_.
@@ -171,7 +159,6 @@ MACRO0(DELIVER_PENDING_EXCEPTION)
     call PLT_SYMBOL(artDeliverPendingExceptionFromCode)  // artDeliverPendingExceptionFromCode(Thread*, SP)
     UNREACHABLE
 END_MACRO
-
 MACRO2(NO_ARG_RUNTIME_EXCEPTION, c_name, cxx_name)
     DEFINE_FUNCTION VAR(c_name, 0)
     SETUP_SAVE_ALL_CALLEE_SAVE_FRAME  // save all registers as basis for long jump context
@@ -182,7 +169,6 @@ MACRO2(NO_ARG_RUNTIME_EXCEPTION, c_name, cxx_name)
     UNREACHABLE
     END_FUNCTION VAR(c_name, 0)
 END_MACRO
-
 MACRO2(ONE_ARG_RUNTIME_EXCEPTION, c_name, cxx_name)
     DEFINE_FUNCTION VAR(c_name, 0)
     SETUP_SAVE_ALL_CALLEE_SAVE_FRAME  // save all registers as basis for long jump context
@@ -193,7 +179,6 @@ MACRO2(ONE_ARG_RUNTIME_EXCEPTION, c_name, cxx_name)
     UNREACHABLE
     END_FUNCTION VAR(c_name, 0)
 END_MACRO
-
 MACRO2(TWO_ARG_RUNTIME_EXCEPTION, c_name, cxx_name)
     DEFINE_FUNCTION VAR(c_name, 0)
     SETUP_SAVE_ALL_CALLEE_SAVE_FRAME  // save all registers as basis for long jump context
@@ -204,39 +189,32 @@ MACRO2(TWO_ARG_RUNTIME_EXCEPTION, c_name, cxx_name)
     UNREACHABLE
     END_FUNCTION VAR(c_name, 0)
 END_MACRO
-
     /*
      * Called by managed code to create and deliver a NullPointerException.
      */
 NO_ARG_RUNTIME_EXCEPTION art_quick_throw_null_pointer_exception, artThrowNullPointerExceptionFromCode
-
     /*
      * Called by managed code to create and deliver an ArithmeticException.
      */
 NO_ARG_RUNTIME_EXCEPTION art_quick_throw_div_zero, artThrowDivZeroFromCode
-
     /*
      * Called by managed code to create and deliver a StackOverflowError.
      */
 NO_ARG_RUNTIME_EXCEPTION art_quick_throw_stack_overflow, artThrowStackOverflowFromCode
-
     /*
      * Called by managed code, saves callee saves and then calls artThrowException
      * that will place a mock Method* at the bottom of the stack. Arg1 holds the exception.
      */
 ONE_ARG_RUNTIME_EXCEPTION art_quick_deliver_exception, artDeliverExceptionFromCode
-
     /*
      * Called by managed code to create and deliver a NoSuchMethodError.
      */
 ONE_ARG_RUNTIME_EXCEPTION art_quick_throw_no_such_method, artThrowNoSuchMethodFromCode
-
     /*
      * Called by managed code to create and deliver an ArrayIndexOutOfBoundsException. Arg1 holds
      * index, arg2 holds limit.
      */
 TWO_ARG_RUNTIME_EXCEPTION art_quick_throw_array_bounds, artThrowArrayBoundsFromCode
-
     /*
      * All generated callsites for interface invokes and invocation slow paths will load arguments
      * as usual - except instead of loading arg0/r0 with the target Method*, arg0/r0 will contain
@@ -259,16 +237,12 @@ MACRO2(INVOKE_TRAMPOLINE, c_name, cxx_name)
     int3
     END_FUNCTION VAR(c_name, 0)
 END_MACRO
-
 INVOKE_TRAMPOLINE art_quick_invoke_interface_trampoline, artInvokeInterfaceTrampoline
 INVOKE_TRAMPOLINE art_quick_invoke_interface_trampoline_with_access_check, artInvokeInterfaceTrampolineWithAccessCheck
-
 INVOKE_TRAMPOLINE art_quick_invoke_static_trampoline_with_access_check, artInvokeStaticTrampolineWithAccessCheck
 INVOKE_TRAMPOLINE art_quick_invoke_direct_trampoline_with_access_check, artInvokeDirectTrampolineWithAccessCheck
 INVOKE_TRAMPOLINE art_quick_invoke_super_trampoline_with_access_check, artInvokeSuperTrampolineWithAccessCheck
 INVOKE_TRAMPOLINE art_quick_invoke_virtual_trampoline_with_access_check, artInvokeVirtualTrampolineWithAccessCheck
-
-
     /*
      * Helper for quick invocation stub to set up XMM registers. Assumes r10 == shorty,
      * r11 == arg_array. Clobbers r10, r11 and al. Branches to xmm_setup_finished if it encounters
@@ -299,7 +273,6 @@ MACRO2(LOOP_OVER_SHORTY_LOADING_XMMS, xmm_reg, finished)
     addq MACRO_LITERAL(4), %r11   // arg_array++
 4:
 END_MACRO
-
     /*
      * Helper for quick invocation stub to set up GPR registers. Assumes r10 == shorty,
      * r11 == arg_array. Clobbers r10, r11 and al. Branches to gpr_setup_finished if it encounters
@@ -332,7 +305,6 @@ MACRO3(LOOP_OVER_SHORTY_LOADING_GPRS, gpr_reg64, gpr_reg32, finished)
     jmp 1b
 5:
 END_MACRO
-
     /*
      * Quick invocation stub.
      * On entry:
@@ -403,7 +375,6 @@ DEFINE_FUNCTION art_quick_invoke_stub
     movss %xmm0, (%r8)           // Store the floating point result.
     ret
 END_FUNCTION art_quick_invoke_stub
-
     /*
      * Quick invocation stub.
      * On entry:
@@ -473,7 +444,6 @@ DEFINE_FUNCTION art_quick_invoke_static_stub
     movss %xmm0, (%r8)           // Store the floating point result.
     ret
 END_FUNCTION art_quick_invoke_static_stub
-
 MACRO3(NO_ARG_DOWNCALL, c_name, cxx_name, return_macro)
     DEFINE_FUNCTION VAR(c_name, 0)
     UNTESTED
@@ -486,7 +456,6 @@ MACRO3(NO_ARG_DOWNCALL, c_name, cxx_name, return_macro)
     CALL_MACRO(return_macro, 2)       // return or deliver exception
     END_FUNCTION VAR(c_name, 0)
 END_MACRO
-
 MACRO3(ONE_ARG_DOWNCALL, c_name, cxx_name, return_macro)
     DEFINE_FUNCTION VAR(c_name, 0)
     UNTESTED
@@ -499,7 +468,6 @@ MACRO3(ONE_ARG_DOWNCALL, c_name, cxx_name, return_macro)
     CALL_MACRO(return_macro, 2)        // return or deliver exception
     END_FUNCTION VAR(c_name, 0)
 END_MACRO
-
 MACRO3(TWO_ARG_DOWNCALL, c_name, cxx_name, return_macro)
     DEFINE_FUNCTION VAR(c_name, 0)
     SETUP_REF_ONLY_CALLEE_SAVE_FRAME   // save ref containing registers for GC
@@ -511,7 +479,6 @@ MACRO3(TWO_ARG_DOWNCALL, c_name, cxx_name, return_macro)
     CALL_MACRO(return_macro, 2)       // return or deliver exception
     END_FUNCTION VAR(c_name, 0)
 END_MACRO
-
 MACRO3(THREE_ARG_DOWNCALL, c_name, cxx_name, return_macro)
     DEFINE_FUNCTION VAR(c_name, 0)
     SETUP_REF_ONLY_CALLEE_SAVE_FRAME   // save ref containing registers for GC
@@ -523,7 +490,6 @@ MACRO3(THREE_ARG_DOWNCALL, c_name, cxx_name, return_macro)
     CALL_MACRO(return_macro, 2)        // return or deliver exception
     END_FUNCTION VAR(c_name, 0)
 END_MACRO
-
 MACRO0(RETURN_IF_RESULT_IS_NON_ZERO)
     testq %rax, %rax               // rax == 0 ?
     jz  1f                         // if rax == 0 goto 1
@@ -531,7 +497,6 @@ MACRO0(RETURN_IF_RESULT_IS_NON_ZERO)
 1:                                 // deliver exception on current thread
     DELIVER_PENDING_EXCEPTION
 END_MACRO
-
 MACRO0(RETURN_IF_EAX_ZERO)
     testl %eax, %eax               // eax == 0 ?
     jnz  1f                        // if eax != 0 goto 1
@@ -539,7 +504,6 @@ MACRO0(RETURN_IF_EAX_ZERO)
 1:                                 // deliver exception on current thread
     DELIVER_PENDING_EXCEPTION
 END_MACRO
-
 MACRO0(RETURN_OR_DELIVER_PENDING_EXCEPTION)
     movq %gs:THREAD_EXCEPTION_OFFSET, %rcx // get exception field
     testq %rcx, %rcx               // rcx == 0 ?
@@ -548,7 +512,6 @@ MACRO0(RETURN_OR_DELIVER_PENDING_EXCEPTION)
 1:                                 // deliver exception on current thread
     DELIVER_PENDING_EXCEPTION
 END_MACRO
-
 // Generate the allocation entrypoints for each allocator.
 // TODO: use arch/quick_alloc_entrypoints.S. Currently we don't as we need to use concatenation
 // macros to work around differences between OS/X's as and binutils as (OS/X lacks named arguments
@@ -572,7 +535,6 @@ END_MACRO
   THREE_ARG_DOWNCALL art_quick_check_and_alloc_array ## c_suffix, artCheckAndAllocArrayFromCode ## cxx_suffix, RETURN_IF_RESULT_IS_NON_ZERO
 #define GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY_WITH_ACCESS_CHECK(c_suffix, cxx_suffix) \
   THREE_ARG_DOWNCALL art_quick_check_and_alloc_array_with_access_check ## c_suffix, artCheckAndAllocArrayFromCodeWithAccessCheck ## cxx_suffix, RETURN_IF_RESULT_IS_NON_ZERO
-
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT(_dlmalloc, DlMalloc)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_RESOLVED(_dlmalloc, DlMalloc)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_INITIALIZED(_dlmalloc, DlMalloc)
@@ -582,7 +544,6 @@ GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED(_dlmalloc, DlMalloc)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_WITH_ACCESS_CHECK(_dlmalloc, DlMalloc)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY(_dlmalloc, DlMalloc)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY_WITH_ACCESS_CHECK(_dlmalloc, DlMalloc)
-
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT(_dlmalloc_instrumented, DlMallocInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_RESOLVED(_dlmalloc_instrumented, DlMallocInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_INITIALIZED(_dlmalloc_instrumented, DlMallocInstrumented)
@@ -592,7 +553,6 @@ GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED(_dlmalloc_instrumented, DlMalloc
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_WITH_ACCESS_CHECK(_dlmalloc_instrumented, DlMallocInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY(_dlmalloc_instrumented, DlMallocInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY_WITH_ACCESS_CHECK(_dlmalloc_instrumented, DlMallocInstrumented)
-
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT(_rosalloc, RosAlloc)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_RESOLVED(_rosalloc, RosAlloc)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_INITIALIZED(_rosalloc, RosAlloc)
@@ -602,7 +562,6 @@ GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED(_rosalloc, RosAlloc)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_WITH_ACCESS_CHECK(_rosalloc, RosAlloc)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY(_rosalloc, RosAlloc)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY_WITH_ACCESS_CHECK(_rosalloc, RosAlloc)
-
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT(_rosalloc_instrumented, RosAllocInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_RESOLVED(_rosalloc_instrumented, RosAllocInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_INITIALIZED(_rosalloc_instrumented, RosAllocInstrumented)
@@ -612,7 +571,6 @@ GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED(_rosalloc_instrumented, RosAlloc
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_WITH_ACCESS_CHECK(_rosalloc_instrumented, RosAllocInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY(_rosalloc_instrumented, RosAllocInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY_WITH_ACCESS_CHECK(_rosalloc_instrumented, RosAllocInstrumented)
-
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT(_bump_pointer, BumpPointer)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_RESOLVED(_bump_pointer, BumpPointer)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_INITIALIZED(_bump_pointer, BumpPointer)
@@ -622,7 +580,6 @@ GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED(_bump_pointer, BumpPointer)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_WITH_ACCESS_CHECK(_bump_pointer, BumpPointer)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY(_bump_pointer, BumpPointer)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY_WITH_ACCESS_CHECK(_bump_pointer, BumpPointer)
-
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT(_bump_pointer_instrumented, BumpPointerInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_RESOLVED(_bump_pointer_instrumented, BumpPointerInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_INITIALIZED(_bump_pointer_instrumented, BumpPointerInstrumented)
@@ -632,7 +589,6 @@ GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED(_bump_pointer_instrumented, Bump
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_WITH_ACCESS_CHECK(_bump_pointer_instrumented, BumpPointerInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY(_bump_pointer_instrumented, BumpPointerInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY_WITH_ACCESS_CHECK(_bump_pointer_instrumented, BumpPointerInstrumented)
-
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT(_tlab, TLAB)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_RESOLVED(_tlab, TLAB)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_INITIALIZED(_tlab, TLAB)
@@ -642,7 +598,6 @@ GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED(_tlab, TLAB)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_WITH_ACCESS_CHECK(_tlab, TLAB)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY(_tlab, TLAB)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY_WITH_ACCESS_CHECK(_tlab, TLAB)
-
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT(_tlab_instrumented, TLABInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_RESOLVED(_tlab_instrumented, TLABInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_OBJECT_INITIALIZED(_tlab_instrumented, TLABInstrumented)
@@ -652,14 +607,11 @@ GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_RESOLVED(_tlab_instrumented, TLABInstrume
 GENERATE_ALLOC_ENTRYPOINTS_ALLOC_ARRAY_WITH_ACCESS_CHECK(_tlab_instrumented, TLABInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY(_tlab_instrumented, TLABInstrumented)
 GENERATE_ALLOC_ENTRYPOINTS_CHECK_AND_ALLOC_ARRAY_WITH_ACCESS_CHECK(_tlab_instrumented, TLABInstrumented)
-
 TWO_ARG_DOWNCALL art_quick_resolve_string, artResolveStringFromCode, RETURN_IF_RESULT_IS_NON_ZERO
 TWO_ARG_DOWNCALL art_quick_initialize_static_storage, artInitializeStaticStorageFromCode, RETURN_IF_RESULT_IS_NON_ZERO
 TWO_ARG_DOWNCALL art_quick_initialize_type, artInitializeTypeFromCode, RETURN_IF_RESULT_IS_NON_ZERO
 TWO_ARG_DOWNCALL art_quick_initialize_type_and_verify_access, artInitializeTypeAndVerifyAccessFromCode, RETURN_IF_RESULT_IS_NON_ZERO
-
 TWO_ARG_DOWNCALL art_quick_handle_fill_data, artHandleFillArrayDataFromCode, RETURN_IF_EAX_ZERO
-
 DEFINE_FUNCTION art_quick_lock_object
     testl %edi, %edi                      // Null check object/rdi.
     jz   .Lslow_lock
@@ -691,7 +643,6 @@ DEFINE_FUNCTION art_quick_lock_object
     RESTORE_REF_ONLY_CALLEE_SAVE_FRAME    // restore frame up to return address
     RETURN_IF_EAX_ZERO
 END_FUNCTION art_quick_lock_object
-
 DEFINE_FUNCTION art_quick_unlock_object
     testl %edi, %edi                      // null check object/edi
     jz   .Lslow_unlock
@@ -717,12 +668,10 @@ DEFINE_FUNCTION art_quick_unlock_object
     RESTORE_REF_ONLY_CALLEE_SAVE_FRAME    // restore frame up to return address
     RETURN_IF_EAX_ZERO
 END_FUNCTION art_quick_unlock_object
-
 DEFINE_FUNCTION art_quick_is_assignable
     int3
     int3
 END_FUNCTION art_quick_is_assignable
-
 DEFINE_FUNCTION art_quick_check_cast
     PUSH rdi                          // Save args for exc
     PUSH rsi
@@ -741,8 +690,6 @@ DEFINE_FUNCTION art_quick_check_cast
     call PLT_SYMBOL(artThrowClassCastException) // (Class* a, Class* b, Thread*, SP)
     int3                              // unreached
 END_FUNCTION art_quick_check_cast
-
-
     /*
      * Entry from managed code for array put operations of objects where the value being stored
      * needs to be checked for compatibility.
@@ -758,8 +705,6 @@ DEFINE_FUNCTION art_quick_aput_obj_with_null_and_bound_check
     jnz art_quick_aput_obj_with_bound_check_local
     jmp art_quick_throw_null_pointer_exception_local
 END_FUNCTION art_quick_aput_obj_with_null_and_bound_check
-
-
 DEFINE_FUNCTION art_quick_aput_obj_with_bound_check
     movl ARRAY_LENGTH_OFFSET(%edi), %ebx
 //  movl ARRAY_LENGTH_OFFSET(%rdi), %ebx      // This zero-extends, so value(%rbx)=value(%ebx)
@@ -771,8 +716,6 @@ DEFINE_FUNCTION art_quick_aput_obj_with_bound_check
 //  mov %rbx, %rsi
     jmp art_quick_throw_array_bounds_local
 END_FUNCTION art_quick_aput_obj_with_bound_check
-
-
 DEFINE_FUNCTION art_quick_aput_obj
     testl %edx, %edx                // store of null
 //  test %rdx, %rdx
@@ -803,24 +746,19 @@ DEFINE_FUNCTION art_quick_aput_obj
     PUSH rdx
     subq LITERAL(8), %rsp        // Alignment padding.
     CFI_ADJUST_CFA_OFFSET(8)
-
                                   // "Uncompress" = do nothing, as already zero-extended on load.
     movl CLASS_OFFSET(%edx), %esi // Pass arg2 = value's class.
     movq %rbx, %rdi               // Pass arg1 = array's component type.
-
     call PLT_SYMBOL(artIsAssignableFromCode)  // (Class* a, Class* b)
-
     // Exception?
     testq %rax, %rax
     jz   .Lthrow_array_store_exception
-
     // Restore arguments.
     addq LITERAL(8), %rsp
     CFI_ADJUST_CFA_OFFSET(-8)
     POP  rdx
     POP  rsi
     POP  rdi
-
     movl %edx, OBJECT_ARRAY_DATA_OFFSET(%edi, %esi, 4)
 //  movq %rdx, OBJECT_ARRAY_DATA_OFFSET(%rdi, %rsi, 4)
     movq %gs:THREAD_CARD_TABLE_OFFSET, %rdx
@@ -836,27 +774,21 @@ DEFINE_FUNCTION art_quick_aput_obj
     POP  rdx
     POP  rsi
     POP  rdi
-
     SETUP_SAVE_ALL_CALLEE_SAVE_FRAME  // Save all registers as basis for long jump context.
-
     // Outgoing argument set up.
     movq %rsp, %rcx                         // Pass arg 4 = SP.
     movq %rdx, %rsi                         // Pass arg 2 = value.
     movq %gs:THREAD_SELF_OFFSET, %rdx // Pass arg 3 = Thread::Current().
                                             // Pass arg 1 = array.
-
     call PLT_SYMBOL(artThrowArrayStoreException) // (array, value, Thread*, SP)
     int3                          // unreached
 END_FUNCTION art_quick_aput_obj
-
 // TODO: This is quite silly on X86_64 now.
 DEFINE_FUNCTION art_quick_memcpy
     call PLT_SYMBOL(memcpy)       // (void*, const void*, size_t)
     ret
 END_FUNCTION art_quick_memcpy
-
 NO_ARG_DOWNCALL art_quick_test_suspend, artTestSuspendFromCode, ret
-
 UNIMPLEMENTED art_quick_fmod
 UNIMPLEMENTED art_quick_fmodf
 UNIMPLEMENTED art_quick_l2d
@@ -870,83 +802,54 @@ UNIMPLEMENTED art_quick_lmul
 UNIMPLEMENTED art_quick_lshl
 UNIMPLEMENTED art_quick_lshr
 UNIMPLEMENTED art_quick_lushr
-
-DEFINE_FUNCTION art_quick_set32_instance
+MACRO3(ONE_ARG_REF_DOWNCALL, c_name, cxx_name, return_macro)
+    DEFINE_FUNCTION VAR(c_name, 0)
+    movq 8(%rsp), %rsi                 // pass referrer
+    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
+                                       // arg0 is in rdi
+    movq %gs:THREAD_SELF_OFFSET, %rdx  // pass Thread::Current()
+    movq %rsp, %rcx                    // pass SP
+    call PLT_VAR(cxx_name, 1)          // cxx_name(arg0, referrer, Thread*, SP)
+    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
+    CALL_MACRO(return_macro, 2)
+    END_FUNCTION VAR(c_name, 0)
+END_MACRO
+MACRO3(TWO_ARG_REF_DOWNCALL, c_name, cxx_name, return_macro)
+    DEFINE_FUNCTION VAR(c_name, 0)
+    movq 8(%rsp), %rdx                 // pass referrer
+    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
+                                       // arg0 and arg1 are in rdi/rsi
+    movq %gs:THREAD_SELF_OFFSET, %rcx  // pass Thread::Current()
+    movq %rsp, %r8                     // pass SP
+    call PLT_VAR(cxx_name, 1)          // (arg0, arg1, referrer, Thread*, SP)
+    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
+    CALL_MACRO(return_macro, 2)
+    END_FUNCTION VAR(c_name, 0)
+END_MACRO
+MACRO3(THREE_ARG_REF_DOWNCALL, c_name, cxx_name, return_macro)
+    DEFINE_FUNCTION VAR(c_name, 0)
     movq 8(%rsp), %rcx                 // pass referrer
     SETUP_REF_ONLY_CALLEE_SAVE_FRAME
-                                       // field_idx, Object* and new_val are in rdi/rsi/rdx
-    movq %gs:THREAD_SELF_OFFSET, %r8   // pass Thread::Current()
+                                       // arg0, arg1, and arg2 are in rdi/rsi/rdx
+    movq %gs:THREAD_SELF_OFFSET, %r8    // pass Thread::Current()
     movq %rsp, %r9                     // pass SP
-    call PLT_SYMBOL(artSet32InstanceFromCode)  // (field_idx, Object*, new_val, referrer, Thread*, SP)
+    call PLT_VAR(cxx_name, 1)          // cxx_name(arg0, arg1, arg2, referrer, Thread*, SP)
     RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
-    RETURN_IF_EAX_ZERO                 // return or deliver exception
-END_FUNCTION art_quick_set32_instance
-
-DEFINE_FUNCTION art_quick_set64_instance
-    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
-                                       // field_idx, Object* and new_val are in rdi/rsi/rdx
-    movq %gs:THREAD_SELF_OFFSET, %rcx  // pass Thread::Current()
-    movq %rsp, %r8                     // pass SP
-    call PLT_SYMBOL(artSet64InstanceFromCode)  // (field_idx, Object*, new_val, Thread*, SP)
-    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
-    RETURN_IF_EAX_ZERO                 // return or deliver exception
-END_FUNCTION art_quick_set64_instance
-
-DEFINE_FUNCTION art_quick_set_obj_instance
-    movq 8(%rsp), %rcx                 // pass referrer
-    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
-                                       // field_idx, Object* and new_val are in rdi/rsi/rdx
-    movq %gs:THREAD_SELF_OFFSET, %r8   // pass Thread::Current()
-    movq %rsp, %r9                     // pass SP
-    call PLT_SYMBOL(artSetObjInstanceFromCode)  // (field_idx, Object*, new_val, referrer, Thread*, SP)
-    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
-    RETURN_IF_EAX_ZERO                 // return or deliver exception
-END_FUNCTION art_quick_set_obj_instance
-
-DEFINE_FUNCTION art_quick_get32_instance
-    movq 8(%rsp), %rdx                 // pass referrer
-    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
-                                       // field_idx and Object* are in rdi/rsi
-    movq %gs:THREAD_SELF_OFFSET, %rcx  // pass Thread::Current()
-    movq %rsp, %r8                     // pass SP
-    call PLT_SYMBOL(artGet32InstanceFromCode)  // (field_idx, Object*, referrer, Thread*, SP)
-    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
-    RETURN_OR_DELIVER_PENDING_EXCEPTION  // return or deliver exception
-END_FUNCTION art_quick_get32_instance
-
-DEFINE_FUNCTION art_quick_get64_instance
-    movq 8(%rsp), %rdx                 // pass referrer
-    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
-                                       // field_idx and Object* are in rdi/rsi
-    movq %gs:THREAD_SELF_OFFSET, %rcx  // pass Thread::Current()
-    movq %rsp, %r8                     // pass SP
-    call PLT_SYMBOL(artGet64InstanceFromCode)  // (field_idx, Object*, referrer, Thread*, SP)
-    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
-    RETURN_OR_DELIVER_PENDING_EXCEPTION  // return or deliver exception
-END_FUNCTION art_quick_get64_instance
-
-DEFINE_FUNCTION art_quick_get_obj_instance
-    movq 8(%rsp), %rdx                 // pass referrer
-    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
-                                       // field_idx and Object* are in rdi/rsi
-    movq %gs:THREAD_SELF_OFFSET, %rcx  // pass Thread::Current()
-    movq %rsp, %r8                     // pass SP
-    call PLT_SYMBOL(artGetObjInstanceFromCode)  // (field_idx, Object*, referrer, Thread*, SP)
-    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
-    RETURN_OR_DELIVER_PENDING_EXCEPTION  // return or deliver exception
-END_FUNCTION art_quick_get_obj_instance
-
-DEFINE_FUNCTION art_quick_set32_static
-    movq 8(%rsp), %rdx                 // pass referrer
-    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
-                                       // field_idx and new_val are in rdi/rsi
-    movq %gs:THREAD_SELF_OFFSET, %rcx  // pass Thread::Current()
-    movq %rsp, %r8                     // pass SP
-    call PLT_SYMBOL(artSet32StaticFromCode)  // (field_idx, new_val, referrer, Thread*, SP)
-    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
-    RETURN_IF_EAX_ZERO                 // return or deliver exception
-END_FUNCTION art_quick_set32_static
-
+    CALL_MACRO(return_macro, 2)        // return or deliver exception
+    END_FUNCTION VAR(c_name, 0)
+END_MACRO
+THREE_ARG_REF_DOWNCALL art_quick_set32_instance, artSet32InstanceFromCode, RETURN_IF_EAX_ZERO
+THREE_ARG_DOWNCALL art_quick_set64_instance, artSet64InstanceFromCode, RETURN_IF_EAX_ZERO
+THREE_ARG_REF_DOWNCALL art_quick_set_obj_instance, artSetObjInstanceFromCode, RETURN_IF_EAX_ZERO
+TWO_ARG_REF_DOWNCALL art_quick_get32_instance, artGet32InstanceFromCode, RETURN_OR_DELIVER_PENDING_EXCEPTION
+TWO_ARG_REF_DOWNCALL art_quick_get64_instance, artGet64InstanceFromCode, RETURN_OR_DELIVER_PENDING_EXCEPTION
+TWO_ARG_REF_DOWNCALL art_quick_get_obj_instance, artGetObjInstanceFromCode, RETURN_OR_DELIVER_PENDING_EXCEPTION
+TWO_ARG_REF_DOWNCALL art_quick_set32_static, artSet32StaticFromCode, RETURN_IF_EAX_ZERO
+TWO_ARG_REF_DOWNCALL art_quick_set_obj_static, artSetObjStaticFromCode, RETURN_IF_EAX_ZERO
+ONE_ARG_REF_DOWNCALL art_quick_get32_static, artGet32StaticFromCode, RETURN_OR_DELIVER_PENDING_EXCEPTION
+ONE_ARG_REF_DOWNCALL art_quick_get64_static, artGet64StaticFromCode, RETURN_OR_DELIVER_PENDING_EXCEPTION
+ONE_ARG_REF_DOWNCALL art_quick_get_obj_static, artGetObjStaticFromCode, RETURN_OR_DELIVER_PENDING_EXCEPTION
+// This is singled out as the argument order is different.
 DEFINE_FUNCTION art_quick_set64_static
     movq %rsi, %rdx                    // pass new_val
     movq 8(%rsp), %rsi                 // pass referrer
@@ -958,51 +861,6 @@ DEFINE_FUNCTION art_quick_set64_static
     RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
     RETURN_IF_EAX_ZERO                 // return or deliver exception
 END_FUNCTION art_quick_set64_static
-
-DEFINE_FUNCTION art_quick_set_obj_static
-    movq 8(%rsp), %rdx                 // pass referrer
-    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
-                                       // field_idx and new_val are in rdi/rsi
-    movq %gs:THREAD_SELF_OFFSET, %rcx  // pass Thread::Current()
-    movq %rsp, %r8                     // pass SP
-    call PLT_SYMBOL(artSetObjStaticFromCode)  // (field_idx, new_val, referrer, Thread*, SP)
-    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
-    RETURN_OR_DELIVER_PENDING_EXCEPTION
-END_FUNCTION art_quick_set_obj_static
-
-DEFINE_FUNCTION art_quick_get32_static
-    movq 8(%rsp), %rsi                 // pass referrer
-    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
-                                       // field_idx is in rdi
-    movq %gs:THREAD_SELF_OFFSET, %rdx  // pass Thread::Current()
-    movq %rsp, %rcx                    // pass SP
-    call PLT_SYMBOL(artGet32StaticFromCode)  // (field_idx, referrer, Thread*, SP)
-    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
-    RETURN_OR_DELIVER_PENDING_EXCEPTION
-END_FUNCTION art_quick_get32_static
-
-DEFINE_FUNCTION art_quick_get64_static
-    movq 8(%rsp), %rsi                 // pass referrer
-    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
-                                       // field_idx is in rdi
-    movq %gs:THREAD_SELF_OFFSET, %rdx  // pass Thread::Current()
-    movq %rsp, %rcx                    // pass SP
-    call PLT_SYMBOL(artGet64StaticFromCode)  // (field_idx, referrer, Thread*, SP)
-    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
-    RETURN_OR_DELIVER_PENDING_EXCEPTION
-END_FUNCTION art_quick_get64_static
-
-DEFINE_FUNCTION art_quick_get_obj_static
-    movq 8(%rsp), %rsi                 // pass referrer
-    SETUP_REF_ONLY_CALLEE_SAVE_FRAME
-                                       // field_idx is in rdi
-    movq %gs:THREAD_SELF_OFFSET, %rdx  // pass Thread::Current()
-    movq %rsp, %rcx                    // pass SP
-    call PLT_SYMBOL(artGetObjStaticFromCode)  // (field_idx, referrer, Thread*, SP)
-    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME // restore frame up to return address
-    RETURN_OR_DELIVER_PENDING_EXCEPTION
-END_FUNCTION art_quick_get_obj_static
-
 DEFINE_FUNCTION art_quick_proxy_invoke_handler
     // Save callee and GPR args, mixed together to agree with core spills bitmap of ref. and args
     // callee save frame.
@@ -1039,12 +897,10 @@ DEFINE_FUNCTION art_quick_proxy_invoke_handler
     CFI_ADJUST_CFA_OFFSET(-168)
     RETURN_OR_DELIVER_PENDING_EXCEPTION
 END_FUNCTION art_quick_proxy_invoke_handler
-
     /*
      * Called to resolve an imt conflict.
      */
 UNIMPLEMENTED art_quick_imt_conflict_trampoline
-
 DEFINE_FUNCTION art_quick_resolution_trampoline
     SETUP_REF_AND_ARGS_CALLEE_SAVE_FRAME
     movq %gs:THREAD_SELF_OFFSET, %rdx
@@ -1060,7 +916,6 @@ DEFINE_FUNCTION art_quick_resolution_trampoline
     RESTORE_REF_AND_ARGS_CALLEE_SAVE_FRAME
     DELIVER_PENDING_EXCEPTION
 END_FUNCTION art_quick_resolution_trampoline
-
 /* Generic JNI frame layout:
  *
  * #-------------------#
@@ -1193,19 +1048,15 @@ DEFINE_FUNCTION art_quick_generic_jni_trampoline
     movq %gs:THREAD_SELF_OFFSET, %rdi
     movq %rbp, %rsi
     call PLT_SYMBOL(artQuickGenericJniTrampoline)  // (Thread*, sp)
-
     // At the bottom of the alloca we now have the name pointer to the method=bottom of callee-save
     // get the adjusted frame pointer
     popq %rbp
-
     // Check for error, negative value.
     test %rax, %rax
     js .Lentry_error
-
     // release part of the alloca, get the code pointer
     addq %rax, %rsp
     popq %rax
-
     // pop from the register-passing alloca region
     // what's the right layout?
     popq %rdi
@@ -1236,17 +1087,14 @@ DEFINE_FUNCTION art_quick_generic_jni_trampoline
     movq %rax, %rdx
     movq %xmm0, %rcx
     call PLT_SYMBOL(artQuickGenericJniEndTrampoline)
-
     // Tear down the alloca.
     movq %rbx, %rsp
     CFI_DEF_CFA_REGISTER(rsp)
-
     // Pending exceptions possible.
     // TODO: use cmpq, needs direct encoding because of gas bug
     movq %gs:THREAD_EXCEPTION_OFFSET, %rcx
     test %rcx, %rcx
     jnz .Lexception_in_native
-
     // Tear down the callee-save frame.
     // Load FPRs.
     // movq %xmm0, 16(%rsp)         // doesn't make sense!!!
@@ -1304,10 +1152,8 @@ DEFINE_FUNCTION art_quick_generic_jni_trampoline
     POP r13  // Callee save.
     POP r14  // Callee save.
     POP r15  // Callee save.
-
     DELIVER_PENDING_EXCEPTION
 END_FUNCTION art_quick_generic_jni_trampoline
-
     /*
      * Called to bridge from the quick to interpreter ABI. On entry the arguments match those
      * of a quick call:
@@ -1323,21 +1169,17 @@ DEFINE_FUNCTION art_quick_to_interpreter_bridge
     movq %rax, %xmm0                   // Place return value also into floating point return value.
     RETURN_OR_DELIVER_PENDING_EXCEPTION    // return or deliver exception
 END_FUNCTION art_quick_to_interpreter_bridge
-
     /*
      * Routine that intercepts method calls and returns.
      */
 UNIMPLEMENTED art_quick_instrumentation_entry
 UNIMPLEMENTED art_quick_instrumentation_exit
-
     /*
      * Instrumentation has requested that we deoptimize into the interpreter. The deoptimization
      * will long jump to the upcall with a special exception of -1.
      */
 UNIMPLEMENTED art_quick_deoptimize
-
 UNIMPLEMENTED art_quick_indexof
-
     /*
      * String's compareTo.
      *
@@ -1379,5 +1221,4 @@ DEFINE_FUNCTION art_quick_string_compareto
     subl  %ecx, %eax              // return the difference
     ret
 END_FUNCTION art_quick_string_compareto
-
 UNIMPLEMENTED art_quick_memcmp16

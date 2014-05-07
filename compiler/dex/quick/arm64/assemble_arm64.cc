@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#include "arm_lir.h"
-#include "codegen_arm.h"
+#include "arm64_lir.h"
+#include "codegen_arm64.h"
 #include "dex/quick/mir_to_lir-inl.h"
 
 namespace art {
@@ -76,7 +76,7 @@ namespace art {
  *  [!] escape.  To insert "!", use "!!"
  */
 /* NOTE: must be kept in sync with enum ArmOpcode from LIR.h */
-const ArmEncodingMap ArmMir2Lir::EncodingMap[kArmLast] = {
+const ArmEncodingMap Arm64Mir2Lir::EncodingMap[kArmLast] = {
     ENCODING_MAP(kArm16BitData,    0x0000,
                  kFmtBitBlt, 15, 0, kFmtUnused, -1, -1, kFmtUnused, -1, -1,
                  kFmtUnused, -1, -1, IS_UNARY_OP, "data", "0x!0h(!0d)", 2, kFixupNone),
@@ -1038,7 +1038,7 @@ const ArmEncodingMap ArmMir2Lir::EncodingMap[kArmLast] = {
 };
 
 // new_lir replaces orig_lir in the pcrel_fixup list.
-void ArmMir2Lir::ReplaceFixup(LIR* prev_lir, LIR* orig_lir, LIR* new_lir) {
+void Arm64Mir2Lir::ReplaceFixup(LIR* prev_lir, LIR* orig_lir, LIR* new_lir) {
   new_lir->u.a.pcrel_next = orig_lir->u.a.pcrel_next;
   if (UNLIKELY(prev_lir == NULL)) {
     first_fixup_ = new_lir;
@@ -1049,7 +1049,7 @@ void ArmMir2Lir::ReplaceFixup(LIR* prev_lir, LIR* orig_lir, LIR* new_lir) {
 }
 
 // new_lir is inserted before orig_lir in the pcrel_fixup list.
-void ArmMir2Lir::InsertFixupBefore(LIR* prev_lir, LIR* orig_lir, LIR* new_lir) {
+void Arm64Mir2Lir::InsertFixupBefore(LIR* prev_lir, LIR* orig_lir, LIR* new_lir) {
   new_lir->u.a.pcrel_next = orig_lir;
   if (UNLIKELY(prev_lir == NULL)) {
     first_fixup_ = new_lir;
@@ -1067,7 +1067,7 @@ void ArmMir2Lir::InsertFixupBefore(LIR* prev_lir, LIR* orig_lir, LIR* new_lir) {
  */
 #define PADDING_MOV_R5_R5               0x1C2D
 
-uint8_t* ArmMir2Lir::EncodeLIRs(uint8_t* write_pos, LIR* lir) {
+uint8_t* Arm64Mir2Lir::EncodeLIRs(uint8_t* write_pos, LIR* lir) {
   for (; lir != NULL; lir = NEXT_LIR(lir)) {
     if (!lir->flags.is_nop) {
       int opcode = lir->opcode;
@@ -1207,13 +1207,13 @@ uint8_t* ArmMir2Lir::EncodeLIRs(uint8_t* write_pos, LIR* lir) {
 }
 
 // Assemble the LIR into binary instruction format.
-void ArmMir2Lir::AssembleLIR() {
+void Arm64Mir2Lir::AssembleLIR() {
   LIR* lir;
   LIR* prev_lir;
   cu_->NewTimingSplit("Assemble");
   int assembler_retries = 0;
   CodeOffset starting_offset = LinkFixupInsns(first_lir_insn_, last_lir_insn_, 0);
-  data_offset_ = RoundUp(starting_offset, 4);
+  data_offset_ = (starting_offset + 0x3) & ~0x3;
   int32_t offset_adjustment;
   AssignDataOffsets();
 
@@ -1596,7 +1596,7 @@ void ArmMir2Lir::AssembleLIR() {
         LOG(FATAL) << "Assembler error - too many retries";
       }
       starting_offset += offset_adjustment;
-      data_offset_ = RoundUp(starting_offset, 4);
+      data_offset_ = (starting_offset + 0x3) & ~0x3;
       AssignDataOffsets();
     }
   }
@@ -1609,7 +1609,7 @@ void ArmMir2Lir::AssembleLIR() {
   write_pos = EncodeLIRs(write_pos, first_lir_insn_);
   DCHECK_EQ(static_cast<CodeOffset>(write_pos - &code_buffer_[0]), starting_offset);
 
-  DCHECK_EQ(data_offset_, RoundUp(code_buffer_.size(), 4));
+  DCHECK_EQ(data_offset_, (code_buffer_.size() + 0x3) & ~0x3);
 
   // Install literals
   InstallLiteralPools();
@@ -1628,13 +1628,13 @@ void ArmMir2Lir::AssembleLIR() {
   CreateNativeGcMap();
 }
 
-int ArmMir2Lir::GetInsnSize(LIR* lir) {
+int Arm64Mir2Lir::GetInsnSize(LIR* lir) {
   DCHECK(!IsPseudoLirOp(lir->opcode));
   return EncodingMap[lir->opcode].size;
 }
 
 // Encode instruction bit pattern and assign offsets.
-uint32_t ArmMir2Lir::LinkFixupInsns(LIR* head_lir, LIR* tail_lir, uint32_t offset) {
+uint32_t Arm64Mir2Lir::LinkFixupInsns(LIR* head_lir, LIR* tail_lir, uint32_t offset) {
   LIR* end_lir = tail_lir->next;
 
   LIR* last_fixup = NULL;
@@ -1668,7 +1668,7 @@ uint32_t ArmMir2Lir::LinkFixupInsns(LIR* head_lir, LIR* tail_lir, uint32_t offse
   return offset;
 }
 
-void ArmMir2Lir::AssignDataOffsets() {
+void Arm64Mir2Lir::AssignDataOffsets() {
   /* Set up offsets for literals */
   CodeOffset offset = data_offset_;
 
