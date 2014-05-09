@@ -91,6 +91,7 @@ typedef uint32_t CodeOffset;         // Native code offset in bytes.
 
 // Common combo register usage patterns.
 #define REG_DEF01            (REG_DEF0 | REG_DEF1)
+#define REG_DEF012           (REG_DEF0 | REG_DEF1 | REG_DEF2)
 #define REG_DEF01_USE2       (REG_DEF0 | REG_DEF1 | REG_USE2)
 #define REG_DEF0_USE01       (REG_DEF0 | REG_USE01)
 #define REG_DEF0_USE0        (REG_DEF0 | REG_USE0)
@@ -167,6 +168,8 @@ struct LIR {
 // Target-specific initialization.
 Mir2Lir* ArmCodeGenerator(CompilationUnit* const cu, MIRGraph* const mir_graph,
                           ArenaAllocator* const arena);
+Mir2Lir* Arm64CodeGenerator(CompilationUnit* const cu, MIRGraph* const mir_graph,
+                            ArenaAllocator* const arena);
 Mir2Lir* MipsCodeGenerator(CompilationUnit* const cu, MIRGraph* const mir_graph,
                           ArenaAllocator* const arena);
 Mir2Lir* X86CodeGenerator(CompilationUnit* const cu, MIRGraph* const mir_graph,
@@ -783,7 +786,7 @@ class Mir2Lir : public Backend {
                                                             bool safepoint_pc);
     void GenInvoke(CallInfo* info);
     void GenInvokeNoInline(CallInfo* info);
-    void FlushIns(RegLocation* ArgLocs, RegLocation rl_method);
+    virtual void FlushIns(RegLocation* ArgLocs, RegLocation rl_method);
     int GenDalvikArgsNoRange(CallInfo* info, int call_state, LIR** pcrLabel,
                              NextCallInsn next_call_insn,
                              const MethodReference& target_method,
@@ -830,7 +833,7 @@ class Mir2Lir : public Backend {
     bool GenInlinedUnsafeGet(CallInfo* info, bool is_long, bool is_volatile);
     bool GenInlinedUnsafePut(CallInfo* info, bool is_long, bool is_object,
                              bool is_volatile, bool is_ordered);
-    int LoadArgRegs(CallInfo* info, int call_state,
+    virtual int LoadArgRegs(CallInfo* info, int call_state,
                     NextCallInsn next_call_insn,
                     const MethodReference& target_method,
                     uint32_t vtable_idx,
@@ -975,6 +978,8 @@ class Mir2Lir : public Backend {
     virtual bool EasyMultiply(RegLocation rl_src, RegLocation rl_dest, int lit) = 0;
     virtual LIR* CheckSuspendUsingLoad() = 0;
     virtual RegStorage LoadHelper(ThreadOffset<4> offset) = 0;
+    virtual LIR* LoadBaseDispVolatile(RegStorage r_base, int displacement, RegStorage r_dest,
+                                      OpSize size) = 0;
     virtual LIR* LoadBaseDisp(RegStorage r_base, int displacement, RegStorage r_dest,
                               OpSize size) = 0;
     virtual LIR* LoadBaseIndexed(RegStorage r_base, RegStorage r_index, RegStorage r_dest,
@@ -983,6 +988,8 @@ class Mir2Lir : public Backend {
                                      int displacement, RegStorage r_dest, OpSize size) = 0;
     virtual LIR* LoadConstantNoClobber(RegStorage r_dest, int value) = 0;
     virtual LIR* LoadConstantWide(RegStorage r_dest, int64_t value) = 0;
+    virtual LIR* StoreBaseDispVolatile(RegStorage r_base, int displacement, RegStorage r_src,
+                                       OpSize size) = 0;
     virtual LIR* StoreBaseDisp(RegStorage r_base, int displacement, RegStorage r_src,
                                OpSize size) = 0;
     virtual LIR* StoreBaseIndexed(RegStorage r_base, RegStorage r_index, RegStorage r_src,
@@ -1023,6 +1030,11 @@ class Mir2Lir : public Backend {
     virtual uint64_t GetTargetInstFlags(int opcode) = 0;
     virtual int GetInsnSize(LIR* lir) = 0;
     virtual bool IsUnconditionalBranch(LIR* lir) = 0;
+
+    // Check support for volatile load/store of a given size.
+    virtual bool SupportsVolatileLoadStore(OpSize size) = 0;
+    // Get the register class for load/store of a field.
+    virtual RegisterClass RegClassForFieldLoadStore(OpSize size, bool is_volatile) = 0;
 
     // Required for target - Dalvik-level generators.
     virtual void GenArithImmOpLong(Instruction::Code opcode, RegLocation rl_dest,
