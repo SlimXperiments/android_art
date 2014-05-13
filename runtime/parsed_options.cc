@@ -181,8 +181,16 @@ bool ParsedOptions::Parse(const Runtime::Options& options, bool ignore_unrecogni
   parallel_gc_threads_ = sysconf(_SC_NPROCESSORS_CONF) - 1;
   // Only the main GC thread, no workers.
   conc_gc_threads_ = 0;
-  // Default is CMS which is Sticky + Partial + Full CMS GC.
+  // The default GC type is set in makefiles.
+#if ART_DEFAULT_GC_TYPE_IS_CMS
   collector_type_ = gc::kCollectorTypeCMS;
+#elif ART_DEFAULT_GC_TYPE_IS_SS
+  collector_type_ = gc::kCollectorTypeSS;
+#elif ART_DEFAULT_GC_TYPE_IS_GSS
+  collector_type_ = gc::kCollectorTypeGSS;
+#else
+#error "ART default GC type must be set"
+#endif
   // If background_collector_type_ is kCollectorTypeNone, it defaults to the collector_type_ after
   // parsing options.
   background_collector_type_ = gc::kCollectorTypeNone;
@@ -223,16 +231,17 @@ bool ParsedOptions::Parse(const Runtime::Options& options, bool ignore_unrecogni
 
 //  gLogVerbosity.class_linker = true;  // TODO: don't check this in!
 //  gLogVerbosity.compiler = true;  // TODO: don't check this in!
-//  gLogVerbosity.verifier = true;  // TODO: don't check this in!
-//  gLogVerbosity.heap = true;  // TODO: don't check this in!
 //  gLogVerbosity.gc = true;  // TODO: don't check this in!
+//  gLogVerbosity.heap = true;  // TODO: don't check this in!
 //  gLogVerbosity.jdwp = true;  // TODO: don't check this in!
 //  gLogVerbosity.jni = true;  // TODO: don't check this in!
 //  gLogVerbosity.monitor = true;  // TODO: don't check this in!
+//  gLogVerbosity.profiler = true;  // TODO: don't check this in!
+//  gLogVerbosity.signals = true;  // TODO: don't check this in!
 //  gLogVerbosity.startup = true;  // TODO: don't check this in!
 //  gLogVerbosity.third_party_jni = true;  // TODO: don't check this in!
 //  gLogVerbosity.threads = true;  // TODO: don't check this in!
-//  gLogVerbosity.signals = true;  // TODO: don't check this in!
+//  gLogVerbosity.verifier = true;  // TODO: don't check this in!
 
   method_trace_ = false;
   method_trace_file_ = "/data/method-trace-file.bin";
@@ -254,7 +263,7 @@ bool ParsedOptions::Parse(const Runtime::Options& options, bool ignore_unrecogni
 #ifdef HAVE_ANDROID_OS
   {
     char buf[PROP_VALUE_MAX];
-    property_get("dalvik.vm.implicit_checks", buf, "null,stack");
+    property_get("dalvik.vm.implicit_checks", buf, "none");
     std::string checks(buf);
     std::vector<std::string> checkvec;
     Split(checks, ',', checkvec);
@@ -445,28 +454,30 @@ bool ParsedOptions::Parse(const Runtime::Options& options, bool ignore_unrecogni
       for (size_t i = 0; i < verbose_options.size(); ++i) {
         if (verbose_options[i] == "class") {
           gLogVerbosity.class_linker = true;
-        } else if (verbose_options[i] == "verifier") {
-          gLogVerbosity.verifier = true;
         } else if (verbose_options[i] == "compiler") {
           gLogVerbosity.compiler = true;
-        } else if (verbose_options[i] == "heap") {
-          gLogVerbosity.heap = true;
         } else if (verbose_options[i] == "gc") {
           gLogVerbosity.gc = true;
+        } else if (verbose_options[i] == "heap") {
+          gLogVerbosity.heap = true;
         } else if (verbose_options[i] == "jdwp") {
           gLogVerbosity.jdwp = true;
         } else if (verbose_options[i] == "jni") {
           gLogVerbosity.jni = true;
         } else if (verbose_options[i] == "monitor") {
           gLogVerbosity.monitor = true;
+        } else if (verbose_options[i] == "profiler") {
+          gLogVerbosity.profiler = true;
+        } else if (verbose_options[i] == "signals") {
+          gLogVerbosity.signals = true;
         } else if (verbose_options[i] == "startup") {
           gLogVerbosity.startup = true;
         } else if (verbose_options[i] == "third-party-jni") {
           gLogVerbosity.third_party_jni = true;
         } else if (verbose_options[i] == "threads") {
           gLogVerbosity.threads = true;
-        } else if (verbose_options[i] == "signals") {
-           gLogVerbosity.signals = true;
+        } else if (verbose_options[i] == "verifier") {
+          gLogVerbosity.verifier = true;
         } else {
           Usage("Unknown -verbose option %s\n", verbose_options[i].c_str());
           return false;
@@ -671,7 +682,9 @@ bool ParsedOptions::Parse(const Runtime::Options& options, bool ignore_unrecogni
 
   if (compiler_callbacks_ == nullptr && image_.empty()) {
     image_ += GetAndroidRoot();
-    image_ += "/framework/boot.art";
+    image_ += "/framework/boot-";
+    image_ += GetInstructionSetString(image_isa_);
+    image_ += ".art";
   }
   if (heap_growth_limit_ == 0) {
     heap_growth_limit_ = heap_maximum_size_;

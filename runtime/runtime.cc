@@ -202,6 +202,8 @@ struct AbortState {
     Thread* self = Thread::Current();
     if (self == nullptr) {
       os << "(Aborting thread was not attached to runtime!)\n";
+      DumpKernelStack(os, GetTid(), "  kernel: ", false);
+      DumpNativeStack(os, GetTid(), "  native: ", nullptr);
     } else {
       os << "Aborting thread:\n";
       if (Locks::mutator_lock_->IsExclusiveHeld(self) || Locks::mutator_lock_->IsSharedHeld(self)) {
@@ -535,20 +537,9 @@ bool Runtime::Init(const Options& raw_options, bool ignore_unrecognized) {
     GetInstrumentation()->ForceInterpretOnly();
   }
 
-  bool implicit_checks_supported = false;
-  switch (kRuntimeISA) {
-  case kArm:
-  case kThumb2:
-    implicit_checks_supported = true;
-    break;
-  default:
-    break;
-  }
-
-  if (implicit_checks_supported &&
-    (options->explicit_checks_ != (ParsedOptions::kExplicitSuspendCheck |
+  if (options->explicit_checks_ != (ParsedOptions::kExplicitSuspendCheck |
         ParsedOptions::kExplicitNullCheck |
-        ParsedOptions::kExplicitStackOverflowCheck) || kEnableJavaStackTraceHandler)) {
+        ParsedOptions::kExplicitStackOverflowCheck) || kEnableJavaStackTraceHandler) {
     fault_manager.Init();
 
     // These need to be in a specific order.  The null point check handler must be
@@ -940,8 +931,8 @@ void Runtime::VisitNonConcurrentRoots(RootCallback* callback, void* arg) {
 }
 
 void Runtime::VisitRoots(RootCallback* callback, void* arg, VisitRootFlags flags) {
-  VisitConcurrentRoots(callback, arg, flags);
   VisitNonConcurrentRoots(callback, arg);
+  VisitConcurrentRoots(callback, arg, flags);
 }
 
 mirror::ObjectArray<mirror::ArtMethod>* Runtime::CreateDefaultImt(ClassLinker* cl) {
@@ -1283,17 +1274,9 @@ void Runtime::AddCurrentRuntimeFeaturesAsDex2OatArguments(std::vector<std::strin
   // Make the dex2oat instruction set match that of the launching runtime. If we have multiple
   // architecture support, dex2oat may be compiled as a different instruction-set than that
   // currently being executed.
-#if defined(__arm__)
-  argv->push_back("--instruction-set=arm");
-#elif defined(__aarch64__)
-  argv->push_back("--instruction-set=arm64");
-#elif defined(__i386__)
-  argv->push_back("--instruction-set=x86");
-#elif defined(__x86_64__)
-  argv->push_back("--instruction-set=x86_64");
-#elif defined(__mips__)
-  argv->push_back("--instruction-set=mips");
-#endif
+  std::string instruction_set("--instruction-set=");
+  instruction_set += GetInstructionSetString(kRuntimeISA);
+  argv->push_back(instruction_set);
 
   std::string features("--instruction-set-features=");
   features += GetDefaultInstructionSetFeatures();
@@ -1301,6 +1284,6 @@ void Runtime::AddCurrentRuntimeFeaturesAsDex2OatArguments(std::vector<std::strin
 }
 
 void Runtime::UpdateProfilerState(int state) {
-  LOG(DEBUG) << "Profiler state updated to " << state;
+  VLOG(profiler) << "Profiler state updated to " << state;
 }
 }  // namespace art

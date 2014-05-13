@@ -443,35 +443,32 @@
     DELIVER_PENDING_EXCEPTION
 .endm
 
-// FIXME: Temporary fix for TR(XSELF).
 .macro NO_ARG_RUNTIME_EXCEPTION c_name, cxx_name
     .extern \cxx_name
 ENTRY \c_name
     SETUP_SAVE_ALL_CALLEE_SAVE_FRAME  // save all registers as basis for long jump context
-    mov x0, x19                        // pass Thread::Current
+    mov x0, xSELF                        // pass Thread::Current
     mov x1, sp                        // pass SP
     b   \cxx_name                     // \cxx_name(Thread*, SP)
 END \c_name
 .endm
 
-// FIXME: Temporary fix for TR(XSELF).
 .macro ONE_ARG_RUNTIME_EXCEPTION c_name, cxx_name
     .extern \cxx_name
 ENTRY \c_name
     SETUP_SAVE_ALL_CALLEE_SAVE_FRAME  // save all registers as basis for long jump context.
-    mov x1, x19                       // pass Thread::Current.
+    mov x1, xSELF                       // pass Thread::Current.
     mov x2, sp                        // pass SP.
     b   \cxx_name                     // \cxx_name(arg, Thread*, SP).
     brk 0
 END \c_name
 .endm
 
-// FIXME: Temporary fix for TR(XSELF).
 .macro TWO_ARG_RUNTIME_EXCEPTION c_name, cxx_name
     .extern \cxx_name
 ENTRY \c_name
     SETUP_SAVE_ALL_CALLEE_SAVE_FRAME  // save all registers as basis for long jump context
-    mov x2, x19                       // pass Thread::Current
+    mov x2, xSELF                       // pass Thread::Current
     mov x3, sp                        // pass SP
     b   \cxx_name                     // \cxx_name(arg1, arg2, Thread*, SP)
     brk 0
@@ -991,7 +988,6 @@ END art_quick_do_long_jump
      * failure.
      */
     .extern artHandleFillArrayDataFromCode
-// TODO: xSELF -> x19.
 ENTRY art_quick_handle_fill_data
     SETUP_REF_ONLY_CALLEE_SAVE_FRAME  // Save callee saves in case exception allocation triggers GC.
     mov    x2, xSELF                       // Pass Thread::Current.
@@ -1002,8 +998,81 @@ ENTRY art_quick_handle_fill_data
     DELIVER_PENDING_EXCEPTION
 END art_quick_handle_fill_data
 
-UNIMPLEMENTED art_quick_lock_object
-UNIMPLEMENTED art_quick_unlock_object
+    /*
+     * Entry from managed code that calls artLockObjectFromCode, may block for GC. x0 holds the
+     * possibly null object to lock.
+     *
+     * Derived from arm32 code.
+     */
+    .extern artLockObjectFromCode
+ENTRY art_quick_lock_object
+    cbz    w0, .Lslow_lock
+    add    x4, x0, #LOCK_WORD_OFFSET  // exclusive load/store had no immediate anymore
+.Lretry_lock:
+    ldr    w2, [xSELF, #THREAD_ID_OFFSET] // TODO: Can the thread ID really change during the loop?
+    ldxr   w1, [x4]
+    cbnz   w1, .Lnot_unlocked         // already thin locked
+    stxr   w3, w2, [x4]
+    cbnz   w3, .Lstrex_fail           // store failed, retry
+    dmb    ishld                      // full (LoadLoad) memory barrier, TODO: acquire-release
+    ret
+.Lstrex_fail:
+    b .Lretry_lock                    // unlikely forward branch, need to reload and recheck r1/r2
+.Lnot_unlocked:
+    lsr    w3, w1, 30
+    cbnz   w3, .Lslow_lock            // if either of the top two bits are set, go slow path
+    eor    w2, w1, w2                 // lock_word.ThreadId() ^ self->ThreadId()
+    uxth   w2, w2                     // zero top 16 bits
+    cbnz   w2, .Lslow_lock            // lock word and self thread id's match -> recursive lock
+                                      // else contention, go to slow path
+    add    w2, w1, #65536             // increment count in lock word placing in w2 for storing
+    lsr    w1, w2, 30                 // if either of the top two bits are set, we overflowed.
+    cbnz   w1, .Lslow_lock            // if we overflow the count go slow path
+    str    w2, [x0, #LOCK_WORD_OFFSET]// no need for stxr as we hold the lock
+    ret
+.Lslow_lock:
+    SETUP_REF_ONLY_CALLEE_SAVE_FRAME  // save callee saves in case we block
+    mov    x1, xSELF                  // pass Thread::Current
+    mov    x2, sp                     // pass SP
+    bl     artLockObjectFromCode      // (Object* obj, Thread*, SP)
+    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME
+    RETURN_IF_W0_IS_ZERO_OR_DELIVER
+END art_quick_lock_object
+
+    /*
+     * Entry from managed code that calls artUnlockObjectFromCode and delivers exception on failure.
+     * x0 holds the possibly null object to lock.
+     *
+     * Derived from arm32 code.
+     */
+    .extern artUnlockObjectFromCode
+ENTRY art_quick_unlock_object
+    cbz    x0, .Lslow_unlock
+    ldr    w1, [x0, #LOCK_WORD_OFFSET]
+    lsr    w2, w1, 30
+    cbnz   w2, .Lslow_unlock          // if either of the top two bits are set, go slow path
+    ldr    w2, [xSELF, #THREAD_ID_OFFSET]
+    eor    w3, w1, w2                 // lock_word.ThreadId() ^ self->ThreadId()
+    uxth   w3, w3                     // zero top 16 bits
+    cbnz   w3, .Lslow_unlock          // do lock word and self thread id's match?
+    cmp    w1, #65536
+    bpl    .Lrecursive_thin_unlock
+    // transition to unlocked, w3 holds 0
+    dmb    ish                        // full (StoreLoad) memory barrier
+    str    w3, [x0, #LOCK_WORD_OFFSET]
+    ret
+.Lrecursive_thin_unlock:
+    sub    w1, w1, #65536
+    str    w1, [x0, #LOCK_WORD_OFFSET]
+    ret
+.Lslow_unlock:
+    SETUP_REF_ONLY_CALLEE_SAVE_FRAME  // save callee saves in case exception allocation triggers GC
+    mov    x1, xSELF                  // pass Thread::Current
+    mov    x2, sp                     // pass SP
+    bl     artUnlockObjectFromCode    // (Object* obj, Thread*, SP)
+    RESTORE_REF_ONLY_CALLEE_SAVE_FRAME
+    RETURN_IF_W0_IS_ZERO_OR_DELIVER
+END art_quick_unlock_object
 
     /*
      * Entry from managed code that calls artIsAssignableFromCode and on failure calls
@@ -1166,12 +1235,7 @@ ENTRY art_quick_aput_obj
     brk 0                         // Unreached.
 END art_quick_aput_obj
 
-UNIMPLEMENTED art_quick_initialize_static_storage
-UNIMPLEMENTED art_quick_initialize_type
-UNIMPLEMENTED art_quick_initialize_type_and_verify_access
-
 // Macro to facilitate adding new allocation entrypoints.
-// TODO: xSELF -> x19. Temporarily rely on xSELF being saved in REF_ONLY
 .macro TWO_ARG_DOWNCALL name, entrypoint, return
     .extern \entrypoint
 ENTRY \name
@@ -1186,7 +1250,6 @@ END \name
 .endm
 
 // Macro to facilitate adding new array allocation entrypoints.
-// TODO: xSELF -> x19. Temporarily rely on xSELF being saved in REF_ONLY
 .macro THREE_ARG_DOWNCALL name, entrypoint, return
     .extern \entrypoint
 ENTRY \name
@@ -1244,6 +1307,16 @@ ENTRY \name
 END \name
 .endm
 
+    /*
+     * Entry from managed code when uninitialized static storage, this stub will run the class
+     * initializer and deliver the exception on error. On success the static storage base is
+     * returned.
+     */
+TWO_ARG_DOWNCALL art_quick_initialize_static_storage, artInitializeStaticStorageFromCode, RETURN_IF_RESULT_IS_NON_ZERO
+
+UNIMPLEMENTED art_quick_initialize_type
+UNIMPLEMENTED art_quick_initialize_type_and_verify_access
+
 ONE_ARG_REF_DOWNCALL art_quick_get32_static, artGet32StaticFromCode, RETURN_OR_DELIVER_PENDING_EXCEPTION_X1
 ONE_ARG_REF_DOWNCALL art_quick_get64_static, artGet64StaticFromCode, RETURN_OR_DELIVER_PENDING_EXCEPTION_X1
 ONE_ARG_REF_DOWNCALL art_quick_get_obj_static, artGetObjStaticFromCode, RETURN_OR_DELIVER_PENDING_EXCEPTION_X1
@@ -1273,8 +1346,13 @@ ENTRY art_quick_set64_static
     RETURN_IF_W0_IS_ZERO_OR_DELIVER
 END art_quick_set64_static
 
-
-UNIMPLEMENTED art_quick_resolve_string
+    /*
+     * Entry from managed code to resolve a string, this stub will allocate a String and deliver an
+     * exception on error. On success the String is returned. x0 holds the referring method,
+     * w1 holds the string index. The fast path check for hit in strings cache has already been
+     * performed.
+     */
+TWO_ARG_DOWNCALL art_quick_resolve_string, artResolveStringFromCode, RETURN_IF_RESULT_IS_NON_ZERO
 
 // Generate the allocation entrypoints for each allocator.
 GENERATE_ALL_ALLOC_ENTRYPOINTS
@@ -1293,7 +1371,7 @@ ENTRY art_quick_proxy_invoke_handler
     mov     x2, xSELF                   // pass Thread::Current
     mov     x3, sp                      // pass SP
     bl      artQuickProxyInvokeHandler  // (Method* proxy method, receiver, Thread*, SP)
-    ldr  xSELF, [sp, #200]              // Restore self pointer.
+    ldr     xSELF, [sp, #200]           // Restore self pointer.
     ldr     x2, [xSELF, THREAD_EXCEPTION_OFFSET]
     cbnz    x2, .Lexception_in_proxy    // success if no exception is pending
     RESTORE_REF_AND_ARGS_CALLEE_SAVE_FRAME_NO_D0 // keep d0
@@ -1308,14 +1386,13 @@ UNIMPLEMENTED art_quick_imt_conflict_trampoline
 
 ENTRY art_quick_resolution_trampoline
     SETUP_REF_AND_ARGS_CALLEE_SAVE_FRAME
-    mov x19, x0           // save the called method
     mov x2, xSELF
     mov x3, sp
     bl artQuickResolutionTrampoline  // (called, receiver, Thread*, SP)
-    mov x9, x0            // Remember returned code pointer in x9.
-    mov x0, x19           // Restore the method, before x19 is restored to on-call value
+    cbz x0, 1f
+    mov x9, x0              // Remember returned code pointer in x9.
+    ldr x0, [sp, #0]        // artQuickResolutionTrampoline puts called method in *SP.
     RESTORE_REF_AND_ARGS_CALLEE_SAVE_FRAME
-    cbz x9, 1f
     br x9
 1:
     RESTORE_REF_AND_ARGS_CALLEE_SAVE_FRAME

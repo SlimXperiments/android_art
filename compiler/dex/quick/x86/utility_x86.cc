@@ -472,6 +472,20 @@ LIR* X86Mir2Lir::OpRegRegImm(OpKind op, RegStorage r_dest, RegStorage r_src, int
 }
 
 LIR* X86Mir2Lir::OpThreadMem(OpKind op, ThreadOffset<4> thread_offset) {
+  DCHECK_EQ(kX86, cu_->instruction_set);
+  X86OpCode opcode = kX86Bkpt;
+  switch (op) {
+    case kOpBlx: opcode = kX86CallT;  break;
+    case kOpBx: opcode = kX86JmpT;  break;
+    default:
+      LOG(FATAL) << "Bad opcode: " << op;
+      break;
+  }
+  return NewLIR1(opcode, thread_offset.Int32Value());
+}
+
+LIR* X86Mir2Lir::OpThreadMem(OpKind op, ThreadOffset<8> thread_offset) {
+  DCHECK_EQ(kX86_64, cu_->instruction_set);
   X86OpCode opcode = kX86Bkpt;
   switch (op) {
     case kOpBlx: opcode = kX86CallT;  break;
@@ -902,6 +916,32 @@ void X86Mir2Lir::AnalyzeDoubleUse(RegLocation use) {
   if (use.is_const) {
     store_method_addr_ = true;
   }
+}
+
+RegLocation X86Mir2Lir::UpdateLocTyped(RegLocation loc, int reg_class) {
+  loc = UpdateLoc(loc);
+  if ((loc.location == kLocPhysReg) && (loc.fp != loc.reg.IsFloat())) {
+    if (GetRegInfo(loc.reg)->IsTemp()) {
+      Clobber(loc.reg);
+      FreeTemp(loc.reg);
+      loc.reg = RegStorage::InvalidReg();
+      loc.location = kLocDalvikFrame;
+    }
+  }
+  return loc;
+}
+
+RegLocation X86Mir2Lir::UpdateLocWideTyped(RegLocation loc, int reg_class) {
+  loc = UpdateLocWide(loc);
+  if ((loc.location == kLocPhysReg) && (loc.fp != loc.reg.IsFloat())) {
+    if (GetRegInfo(loc.reg)->IsTemp()) {
+      Clobber(loc.reg);
+      FreeTemp(loc.reg);
+      loc.reg = RegStorage::InvalidReg();
+      loc.location = kLocDalvikFrame;
+    }
+  }
+  return loc;
 }
 
 }  // namespace art

@@ -35,13 +35,6 @@ namespace art {
 // Static fault manger object accessed by signal handler.
 FaultManager fault_manager;
 
-extern "C" {
-void art_sigsegv_fault() {
-  // Set a breakpoint here to be informed when a SIGSEGV is unhandled by ART.
-  LOG(ERROR)<< "Caught unknown SIGSEGV in ART fault handler";
-}
-}
-
 // Signal handler called on SIGSEGV.
 static void art_fault_handler(int sig, siginfo_t* info, void* context) {
   fault_manager.HandleFault(sig, info, context);
@@ -67,11 +60,15 @@ void FaultManager::Init() {
 }
 
 void FaultManager::HandleFault(int sig, siginfo_t* info, void* context) {
-  LOG(DEBUG) << "Handling fault";
+  // BE CAREFUL ALLOCATING HERE INCLUDING USING LOG(...)
+  //
+  // If malloc calls abort, it will be holding its lock.
+  // If the handler tries to call malloc, it will deadlock.
+  VLOG(signals) << "Handling fault";
   if (IsInGeneratedCode(context, true)) {
-    LOG(DEBUG) << "in generated code, looking for handler";
+    VLOG(signals) << "in generated code, looking for handler";
     for (const auto& handler : generated_code_handlers_) {
-      LOG(DEBUG) << "invoking Action on handler " << handler;
+      VLOG(signals) << "invoking Action on handler " << handler;
       if (handler->Action(sig, info, context)) {
         return;
       }
@@ -82,10 +79,7 @@ void FaultManager::HandleFault(int sig, siginfo_t* info, void* context) {
       return;
     }
   }
-
-  // Allow the user to catch this problem with a simple breakpoint in art_sigsegv_fault.
-  art_sigsegv_fault();
-
+  LOG(ERROR)<< "Caught unknown SIGSEGV in ART fault handler";
   oldaction_.sa_sigaction(sig, info, context);
 }
 

@@ -450,9 +450,7 @@ use-dalvik:
 use-art-full:
 	adb root && sleep 3
 	adb shell stop
-	adb shell rm $(ART_DALVIK_CACHE_DIR)/*.dex
-	adb shell rm $(ART_DALVIK_CACHE_DIR)/*.oat
-	adb shell rm $(ART_DALVIK_CACHE_DIR)/*.art
+	adb shell rm -rf $(ART_DALVIK_CACHE_DIR)/*
 	adb shell setprop dalvik.vm.dex2oat-flags ""
 	adb shell setprop dalvik.vm.image-dex2oat-flags ""
 	adb shell setprop persist.sys.dalvik.vm.lib.1 libart.so
@@ -462,9 +460,7 @@ use-art-full:
 use-art-smart:
 	adb root && sleep 3
 	adb shell stop
-	adb shell rm $(ART_DALVIK_CACHE_DIR)/*.dex
-	adb shell rm $(ART_DALVIK_CACHE_DIR)/*.oat
-	adb shell rm $(ART_DALVIK_CACHE_DIR)/*.art
+	adb shell rm -rf $(ART_DALVIK_CACHE_DIR)/*
 	adb shell setprop dalvik.vm.dex2oat-flags "--compiler-filter=interpret-only"
 	adb shell setprop dalvik.vm.image-dex2oat-flags ""
 	adb shell setprop persist.sys.dalvik.vm.lib.1 libart.so
@@ -474,9 +470,7 @@ use-art-smart:
 use-art-interpret-only:
 	adb root && sleep 3
 	adb shell stop
-	adb shell rm $(ART_DALVIK_CACHE_DIR)/*.dex
-	adb shell rm $(ART_DALVIK_CACHE_DIR)/*.oat
-	adb shell rm $(ART_DALVIK_CACHE_DIR)/*.art
+	adb shell rm -rf $(ART_DALVIK_CACHE_DIR)/*
 	adb shell setprop dalvik.vm.dex2oat-flags "--compiler-filter=interpret-only"
 	adb shell setprop dalvik.vm.image-dex2oat-flags "--compiler-filter=interpret-only"
 	adb shell setprop persist.sys.dalvik.vm.lib.1 libart.so
@@ -486,9 +480,7 @@ use-art-interpret-only:
 use-art-verify-none:
 	adb root && sleep 3
 	adb shell stop
-	adb shell rm $(ART_DALVIK_CACHE_DIR)/*.dex
-	adb shell rm $(ART_DALVIK_CACHE_DIR)/*.oat
-	adb shell rm $(ART_DALVIK_CACHE_DIR)/*.art
+	adb shell rm -rf $(ART_DALVIK_CACHE_DIR)/*
 	adb shell setprop dalvik.vm.dex2oat-flags "--compiler-filter=verify-none"
 	adb shell setprop dalvik.vm.image-dex2oat-flags "--compiler-filter=verify-none"
 	adb shell setprop persist.sys.dalvik.vm.lib.1 libart.so

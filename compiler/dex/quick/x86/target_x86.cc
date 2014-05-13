@@ -589,6 +589,12 @@ RegStorage X86Mir2Lir::LoadHelper(ThreadOffset<4> offset) {
   return RegStorage::InvalidReg();
 }
 
+// Not used in x86
+RegStorage X86Mir2Lir::LoadHelper(ThreadOffset<8> offset) {
+  LOG(FATAL) << "Unexpected use of LoadHelper in x86";
+  return RegStorage::InvalidReg();
+}
+
 LIR* X86Mir2Lir::CheckSuspendUsingLoad() {
   LOG(FATAL) << "Unexpected use of CheckSuspendUsingLoad in x86";
   return nullptr;
@@ -854,7 +860,7 @@ bool X86Mir2Lir::GenInlinedIndexOf(CallInfo* info, bool zero_based) {
       }
     } else {
       // Runtime start index.
-      rl_start = UpdateLoc(rl_start);
+      rl_start = UpdateLocTyped(rl_start, kCoreReg);
       if (rl_start.location == kLocPhysReg) {
         // Handle "start index < 0" case.
         OpRegReg(kOpXor, rs_rBX, rs_rBX);

@@ -291,6 +291,20 @@ class Mir2Lir : public Backend {
      *    0x0000ffff for 512-bit view of ymm1   // future expansion, if needed
      *    0xffffffff for 1024-bit view of ymm1  // future expansion, if needed
      *
+     * The "liveness" of a register is handled in a similar way.  The liveness_ storage is
+     * held in the widest member of an aliased set.  Note, though, that for a temp register to
+     * reused as live, it must both be marked live and the associated SReg() must match the
+     * desired s_reg.  This gets a little complicated when dealing with aliased registers.  All
+     * members of an aliased set will share the same liveness flags, but each will individually
+     * maintain s_reg_.  In this way we can know that at least one member of an
+     * aliased set is live, but will only fully match on the appropriate alias view.  For example,
+     * if Arm d1 is live as a double and has s_reg_ set to Dalvik v8 (which also implies v9
+     * because it is wide), its aliases s2 and s3 will show as live, but will have
+     * s_reg_ == INVALID_SREG.  An attempt to later AllocLiveReg() of v9 with a single-precision
+     * view will fail because although s3's liveness bit is set, its s_reg_ will not match v9.
+     * This will cause all members of the aliased set to be clobbered and AllocLiveReg() will
+     * report that v9 is currently not live as a single (which is what we want).
+     *
      * NOTE: the x86 usage is still somewhat in flux.  There are competing notions of how
      * to treat xmm registers:
      *     1. Treat them all as 128-bits wide, but denote how much data used via bytes field.
@@ -319,14 +333,21 @@ class Mir2Lir : public Backend {
       bool InUse() { return (storage_mask_ & master_->used_storage_) != 0; }
       void MarkInUse() { master_->used_storage_ |= storage_mask_; }
       void MarkFree() { master_->used_storage_ &= ~storage_mask_; }
+      // No part of the containing storage is live in this view.
+      bool IsDead() { return (master_->liveness_ & storage_mask_) == 0; }
+      // Liveness of this view matches.  Note: not equivalent to !IsDead().
+      bool IsLive() { return (master_->liveness_ & storage_mask_) == storage_mask_; }
+      void MarkLive() { master_->liveness_ |= storage_mask_; }
+      void MarkDead() {
+        master_->liveness_ &= ~storage_mask_;
+        SetSReg(INVALID_SREG);
+      }
       RegStorage GetReg() { return reg_; }
       void SetReg(RegStorage reg) { reg_ = reg; }
       bool IsTemp() { return is_temp_; }
       void SetIsTemp(bool val) { is_temp_ = val; }
       bool IsWide() { return wide_value_; }
       void SetIsWide(bool val) { wide_value_ = val; }
-      bool IsLive() { return live_; }
-      void SetIsLive(bool val) { live_ = val; }
       bool IsDirty() { return dirty_; }
       void SetIsDirty(bool val) { dirty_ = val; }
       RegStorage Partner() { return partner_; }
@@ -336,7 +357,17 @@ class Mir2Lir : public Backend {
       uint64_t DefUseMask() { return def_use_mask_; }
       void SetDefUseMask(uint64_t def_use_mask) { def_use_mask_ = def_use_mask; }
       RegisterInfo* Master() { return master_; }
-      void SetMaster(RegisterInfo* master) { master_ = master; }
+      void SetMaster(RegisterInfo* master) {
+        master_ = master;
+        if (master != this) {
+          master_->aliased_ = true;
+          DCHECK(alias_chain_ == nullptr);
+          alias_chain_ = master_->alias_chain_;
+          master_->alias_chain_ = this;
+        }
+      }
+      bool IsAliased() { return aliased_; }
+      RegisterInfo* GetAliasChain() { return alias_chain_; }
       uint32_t StorageMask() { return storage_mask_; }
       void SetStorageMask(uint32_t storage_mask) { storage_mask_ = storage_mask; }
       LIR* DefStart() { return def_start_; }
@@ -350,16 +381,18 @@ class Mir2Lir : public Backend {
       RegStorage reg_;
       bool is_temp_;               // Can allocate as temp?
       bool wide_value_;            // Holds a Dalvik wide value (either itself, or part of a pair).
-      bool live_;                  // Is there an associated SSA name?
       bool dirty_;                 // If live, is it dirty?
+      bool aliased_;               // Is this the master for other aliased RegisterInfo's?
       RegStorage partner_;         // If wide_value, other reg of pair or self if 64-bit register.
       int s_reg_;                  // Name of live value.
       uint64_t def_use_mask_;      // Resources for this element.
       uint32_t used_storage_;      // 1 bit per 4 bytes of storage. Unused by aliases.
+      uint32_t liveness_;          // 1 bit per 4 bytes of storage. Unused by aliases.
       RegisterInfo* master_;       // Pointer to controlling storage mask.
       uint32_t storage_mask_;      // Track allocation of sub-units.
       LIR *def_start_;             // Starting inst in last def sequence.
       LIR *def_end_;               // Ending inst in last def sequence.
+      RegisterInfo* alias_chain_;  // Chain of aliased registers.
     };
 
     class RegisterPool {
@@ -437,7 +470,7 @@ class Mir2Lir : public Backend {
      public:
       LIRSlowPath(Mir2Lir* m2l, const DexOffset dexpc, LIR* fromfast,
                   LIR* cont = nullptr) :
-        m2l_(m2l), current_dex_pc_(dexpc), fromfast_(fromfast), cont_(cont) {
+        m2l_(m2l), cu_(m2l->cu_), current_dex_pc_(dexpc), fromfast_(fromfast), cont_(cont) {
       }
       virtual ~LIRSlowPath() {}
       virtual void Compile() = 0;
@@ -450,6 +483,7 @@ class Mir2Lir : public Backend {
       LIR* GenerateTargetLabel(int opcode = kPseudoTargetLabel);
 
       Mir2Lir* const m2l_;
+      CompilationUnit* const cu_;
       const DexOffset current_dex_pc_;
       LIR* const fromfast_;
       LIR* const cont_;
@@ -598,8 +632,8 @@ class Mir2Lir : public Backend {
     void DumpRegPools();
     /* Mark a temp register as dead.  Does not affect allocation state. */
     void Clobber(RegStorage reg);
-    void ClobberSRegBody(GrowableArray<RegisterInfo*>* regs, int s_reg);
     void ClobberSReg(int s_reg);
+    void ClobberAliases(RegisterInfo* info);
     int SRegToPMap(int s_reg);
     void RecordCorePromotion(RegStorage reg, int s_reg);
     RegStorage AllocPreservedCoreReg(int s_reg);
@@ -630,7 +664,7 @@ class Mir2Lir : public Backend {
     void ResetDefLoc(RegLocation rl);
     void ResetDefLocWide(RegLocation rl);
     void ResetDefTracking();
-    void ClobberAllRegs();
+    void ClobberAllTemps();
     void FlushSpecificReg(RegisterInfo* info);
     void FlushAllRegs();
     bool RegClassMatches(int reg_class, RegStorage reg);
@@ -648,9 +682,9 @@ class Mir2Lir : public Backend {
     RegLocation UpdateRawLoc(RegLocation loc);
 
     /**
-     * @brief Used to load register location into a typed temporary or pair of temporaries.
+     * @brief Used to prepare a register location to receive a wide value.
      * @see EvalLoc
-     * @param loc The register location to load from.
+     * @param loc the location where the value will be stored.
      * @param reg_class Type of register needed.
      * @param update Whether the liveness information should be updated.
      * @return Returns the properly typed temporary in physical register pairs.
@@ -658,8 +692,8 @@ class Mir2Lir : public Backend {
     RegLocation EvalLocWide(RegLocation loc, int reg_class, bool update);
 
     /**
-     * @brief Used to load register location into a typed temporary.
-     * @param loc The register location to load from.
+     * @brief Used to prepare a register location to receive a value.
+     * @param loc the location where the value will be stored.
      * @param reg_class Type of register needed.
      * @param update Whether the liveness information should be updated.
      * @return Returns the properly typed temporary in physical register.
@@ -731,7 +765,8 @@ class Mir2Lir : public Backend {
                           RegLocation rl_src, int lit);
     void GenArithOpLong(Instruction::Code opcode, RegLocation rl_dest,
                         RegLocation rl_src1, RegLocation rl_src2);
-    void GenConversionCall(ThreadOffset<4> func_offset, RegLocation rl_dest,
+    template <size_t pointer_size>
+    void GenConversionCall(ThreadOffset<pointer_size> func_offset, RegLocation rl_dest,
                            RegLocation rl_src);
     void GenSuspendTest(int opt_flags);
     void GenSuspendTestAndBranch(int opt_flags, LIR* target);
@@ -742,45 +777,66 @@ class Mir2Lir : public Backend {
                        RegLocation rl_src1, RegLocation rl_src2);
 
     // Shared by all targets - implemented in gen_invoke.cc.
-    LIR* CallHelper(RegStorage r_tgt, ThreadOffset<4> helper_offset, bool safepoint_pc,
+    template <size_t pointer_size>
+    LIR* CallHelper(RegStorage r_tgt, ThreadOffset<pointer_size> helper_offset, bool safepoint_pc,
                     bool use_link = true);
     RegStorage CallHelperSetup(ThreadOffset<4> helper_offset);
-    void CallRuntimeHelper(ThreadOffset<4> helper_offset, bool safepoint_pc);
-    void CallRuntimeHelperImm(ThreadOffset<4> helper_offset, int arg0, bool safepoint_pc);
-    void CallRuntimeHelperReg(ThreadOffset<4> helper_offset, RegStorage arg0, bool safepoint_pc);
-    void CallRuntimeHelperRegLocation(ThreadOffset<4> helper_offset, RegLocation arg0,
+    RegStorage CallHelperSetup(ThreadOffset<8> helper_offset);
+    template <size_t pointer_size>
+    void CallRuntimeHelper(ThreadOffset<pointer_size> helper_offset, bool safepoint_pc);
+    template <size_t pointer_size>
+    void CallRuntimeHelperImm(ThreadOffset<pointer_size> helper_offset, int arg0, bool safepoint_pc);
+    template <size_t pointer_size>
+    void CallRuntimeHelperReg(ThreadOffset<pointer_size> helper_offset, RegStorage arg0, bool safepoint_pc);
+    template <size_t pointer_size>
+    void CallRuntimeHelperRegLocation(ThreadOffset<pointer_size> helper_offset, RegLocation arg0,
                                       bool safepoint_pc);
-    void CallRuntimeHelperImmImm(ThreadOffset<4> helper_offset, int arg0, int arg1,
+    template <size_t pointer_size>
+    void CallRuntimeHelperImmImm(ThreadOffset<pointer_size> helper_offset, int arg0, int arg1,
                                  bool safepoint_pc);
-    void CallRuntimeHelperImmRegLocation(ThreadOffset<4> helper_offset, int arg0,
+    template <size_t pointer_size>
+    void CallRuntimeHelperImmRegLocation(ThreadOffset<pointer_size> helper_offset, int arg0,
                                          RegLocation arg1, bool safepoint_pc);
-    void CallRuntimeHelperRegLocationImm(ThreadOffset<4> helper_offset, RegLocation arg0,
+    template <size_t pointer_size>
+    void CallRuntimeHelperRegLocationImm(ThreadOffset<pointer_size> helper_offset, RegLocation arg0,
                                          int arg1, bool safepoint_pc);
-    void CallRuntimeHelperImmReg(ThreadOffset<4> helper_offset, int arg0, RegStorage arg1,
+    template <size_t pointer_size>
+    void CallRuntimeHelperImmReg(ThreadOffset<pointer_size> helper_offset, int arg0, RegStorage arg1,
                                  bool safepoint_pc);
-    void CallRuntimeHelperRegImm(ThreadOffset<4> helper_offset, RegStorage arg0, int arg1,
+    template <size_t pointer_size>
+    void CallRuntimeHelperRegImm(ThreadOffset<pointer_size> helper_offset, RegStorage arg0, int arg1,
                                  bool safepoint_pc);
-    void CallRuntimeHelperImmMethod(ThreadOffset<4> helper_offset, int arg0,
+    template <size_t pointer_size>
+    void CallRuntimeHelperImmMethod(ThreadOffset<pointer_size> helper_offset, int arg0,
                                     bool safepoint_pc);
-    void CallRuntimeHelperRegMethod(ThreadOffset<4> helper_offset, RegStorage arg0,
+    template <size_t pointer_size>
+    void CallRuntimeHelperRegMethod(ThreadOffset<pointer_size> helper_offset, RegStorage arg0,
                                     bool safepoint_pc);
-    void CallRuntimeHelperRegMethodRegLocation(ThreadOffset<4> helper_offset, RegStorage arg0,
-                                               RegLocation arg2, bool safepoint_pc);
-    void CallRuntimeHelperRegLocationRegLocation(ThreadOffset<4> helper_offset,
+    template <size_t pointer_size>
+    void CallRuntimeHelperRegMethodRegLocation(ThreadOffset<pointer_size> helper_offset,
+                                               RegStorage arg0, RegLocation arg2, bool safepoint_pc);
+    template <size_t pointer_size>
+    void CallRuntimeHelperRegLocationRegLocation(ThreadOffset<pointer_size> helper_offset,
                                                  RegLocation arg0, RegLocation arg1,
                                                  bool safepoint_pc);
-    void CallRuntimeHelperRegReg(ThreadOffset<4> helper_offset, RegStorage arg0, RegStorage arg1,
-                                 bool safepoint_pc);
-    void CallRuntimeHelperRegRegImm(ThreadOffset<4> helper_offset, RegStorage arg0, RegStorage arg1,
-                                    int arg2, bool safepoint_pc);
-    void CallRuntimeHelperImmMethodRegLocation(ThreadOffset<4> helper_offset, int arg0,
+    template <size_t pointer_size>
+    void CallRuntimeHelperRegReg(ThreadOffset<pointer_size> helper_offset, RegStorage arg0,
+                                 RegStorage arg1, bool safepoint_pc);
+    template <size_t pointer_size>
+    void CallRuntimeHelperRegRegImm(ThreadOffset<pointer_size> helper_offset, RegStorage arg0,
+                                    RegStorage arg1, int arg2, bool safepoint_pc);
+    template <size_t pointer_size>
+    void CallRuntimeHelperImmMethodRegLocation(ThreadOffset<pointer_size> helper_offset, int arg0,
                                                RegLocation arg2, bool safepoint_pc);
-    void CallRuntimeHelperImmMethodImm(ThreadOffset<4> helper_offset, int arg0, int arg2,
+    template <size_t pointer_size>
+    void CallRuntimeHelperImmMethodImm(ThreadOffset<pointer_size> helper_offset, int arg0, int arg2,
                                        bool safepoint_pc);
-    void CallRuntimeHelperImmRegLocationRegLocation(ThreadOffset<4> helper_offset,
+    template <size_t pointer_size>
+    void CallRuntimeHelperImmRegLocationRegLocation(ThreadOffset<pointer_size> helper_offset,
                                                     int arg0, RegLocation arg1, RegLocation arg2,
                                                     bool safepoint_pc);
-    void CallRuntimeHelperRegLocationRegLocationRegLocation(ThreadOffset<4> helper_offset,
+    template <size_t pointer_size>
+    void CallRuntimeHelperRegLocationRegLocationRegLocation(ThreadOffset<pointer_size> helper_offset,
                                                             RegLocation arg0, RegLocation arg1,
                                                             RegLocation arg2,
                                                             bool safepoint_pc);
@@ -977,7 +1033,10 @@ class Mir2Lir : public Backend {
                                     RegLocation rl_src, RegLocation rl_dest, int lit) = 0;
     virtual bool EasyMultiply(RegLocation rl_src, RegLocation rl_dest, int lit) = 0;
     virtual LIR* CheckSuspendUsingLoad() = 0;
+
     virtual RegStorage LoadHelper(ThreadOffset<4> offset) = 0;
+    virtual RegStorage LoadHelper(ThreadOffset<8> offset) = 0;
+
     virtual LIR* LoadBaseDispVolatile(RegStorage r_base, int displacement, RegStorage r_dest,
                                       OpSize size) = 0;
     virtual LIR* LoadBaseDisp(RegStorage r_base, int displacement, RegStorage r_dest,
@@ -1208,12 +1267,14 @@ class Mir2Lir : public Backend {
                              RegStorage r_src2) = 0;
     virtual LIR* OpTestSuspend(LIR* target) = 0;
     virtual LIR* OpThreadMem(OpKind op, ThreadOffset<4> thread_offset) = 0;
+    virtual LIR* OpThreadMem(OpKind op, ThreadOffset<8> thread_offset) = 0;
     virtual LIR* OpVldm(RegStorage r_base, int count) = 0;
     virtual LIR* OpVstm(RegStorage r_base, int count) = 0;
     virtual void OpLea(RegStorage r_base, RegStorage reg1, RegStorage reg2, int scale,
                        int offset) = 0;
     virtual void OpRegCopyWide(RegStorage dest, RegStorage src) = 0;
     virtual void OpTlsCmp(ThreadOffset<4> offset, int val) = 0;
+    virtual void OpTlsCmp(ThreadOffset<8> offset, int val) = 0;
     virtual bool InexpensiveConstantInt(int32_t value) = 0;
     virtual bool InexpensiveConstantFloat(int32_t value) = 0;
     virtual bool InexpensiveConstantLong(int64_t value) = 0;
