@@ -17,11 +17,12 @@
 #include "common_compiler_test.h"
 #include "compiler/compiler.h"
 #include "compiler/oat_writer.h"
+#include "entrypoints/quick/quick_entrypoints.h"
 #include "mirror/art_method-inl.h"
 #include "mirror/class-inl.h"
 #include "mirror/object-inl.h"
 #include "mirror/object_array-inl.h"
-#include "oat_file.h"
+#include "oat_file-inl.h"
 #include "vector_output_stream.h"
 
 namespace art {
@@ -152,7 +153,8 @@ TEST_F(OatTest, WriteRead) {
       num_virtual_methods = it.NumVirtualMethods();
     }
     const char* descriptor = dex_file->GetClassDescriptor(class_def);
-    SirtRef<mirror::ClassLoader> loader(soa.Self(), nullptr);
+    StackHandleScope<1> hs(soa.Self());
+    auto loader(hs.NewHandle<mirror::ClassLoader>(nullptr));
     mirror::Class* klass = class_linker->FindClass(soa.Self(), descriptor, loader);
 
     const OatFile::OatClass oat_class = oat_dex_file->GetOatClass(i);
@@ -176,8 +178,9 @@ TEST_F(OatTest, OatHeaderSizeCheck) {
   // If this test is failing and you have to update these constants,
   // it is time to update OatHeader::kOatVersion
   EXPECT_EQ(80U, sizeof(OatHeader));
-  EXPECT_EQ(20U, sizeof(OatMethodOffsets));
-  EXPECT_EQ(12U, sizeof(OatMethodHeader));
+  EXPECT_EQ(8U, sizeof(OatMethodOffsets));
+  EXPECT_EQ(24U, sizeof(OatQuickMethodHeader));
+  EXPECT_EQ(320U, sizeof(QuickEntryPoints));
 }
 
 TEST_F(OatTest, OatHeaderIsValid) {

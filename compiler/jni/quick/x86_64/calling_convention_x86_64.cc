@@ -133,17 +133,17 @@ X86_64JniCallingConvention::X86_64JniCallingConvention(bool is_static, bool is_s
 }
 
 uint32_t X86_64JniCallingConvention::CoreSpillMask() const {
-  return 1 << RBX | 1 << RBP | 1 << R12 | 1 << R13 | 1 << R14 | 1 << R15 | 1 << R13 |
+  return 1 << RBX | 1 << RBP | 1 << R12 | 1 << R13 | 1 << R14 | 1 << R15 |
       1 << kNumberOfCpuRegisters;
 }
 
 size_t X86_64JniCallingConvention::FrameSize() {
   // Method*, return address and callee save area size, local reference segment state
   size_t frame_data_size = (3 + CalleeSaveRegisters().size()) * kFramePointerSize;
-  // References plus link_ (pointer) and number_of_references_ (uint32_t) for SIRT header
-  size_t sirt_size = StackIndirectReferenceTable::GetAlignedSirtSizeTarget(kFramePointerSize, ReferenceCount());
+  // References plus link_ (pointer) and number_of_references_ (uint32_t) for HandleScope header
+  size_t handle_scope_size = HandleScope::GetAlignedHandleScopeSizeTarget(kFramePointerSize, ReferenceCount());
   // Plus return value spill area size
-  return RoundUp(frame_data_size + sirt_size + SizeOfReturnValue(), kStackAlignment);
+  return RoundUp(frame_data_size + handle_scope_size + SizeOfReturnValue(), kStackAlignment);
 }
 
 size_t X86_64JniCallingConvention::OutArgSize() {
