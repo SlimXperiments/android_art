@@ -139,7 +139,7 @@ class DebugInstrumentationListener FINAL : public instrumentation::Instrumentati
       // TODO: post location events is a suspension point and native method entry stubs aren't.
       return;
     }
-    Dbg::PostLocationEvent(method, 0, this_object, Dbg::kMethodEntry, nullptr);
+    Dbg::UpdateDebugger(thread, this_object, method, 0, Dbg::kMethodEntry, nullptr);
   }
 
   void MethodExited(Thread* thread, mirror::Object* this_object, mirror::ArtMethod* method,
@@ -149,7 +149,7 @@ class DebugInstrumentationListener FINAL : public instrumentation::Instrumentati
       // TODO: post location events is a suspension point and native method entry stubs aren't.
       return;
     }
-    Dbg::PostLocationEvent(method, dex_pc, this_object, Dbg::kMethodExit, &return_value);
+    Dbg::UpdateDebugger(thread, this_object, method, dex_pc, Dbg::kMethodExit, &return_value);
   }
 
   void MethodUnwind(Thread* thread, mirror::Object* this_object, mirror::ArtMethod* method,
@@ -163,7 +163,7 @@ class DebugInstrumentationListener FINAL : public instrumentation::Instrumentati
   void DexPcMoved(Thread* thread, mirror::Object* this_object, mirror::ArtMethod* method,
                   uint32_t new_dex_pc)
       OVERRIDE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
-    Dbg::UpdateDebugger(thread, this_object, method, new_dex_pc);
+    Dbg::UpdateDebugger(thread, this_object, method, new_dex_pc, 0, nullptr);
   }
 
   void FieldRead(Thread* thread, mirror::Object* this_object, mirror::ArtMethod* method,
@@ -227,6 +227,15 @@ Mutex* Dbg::deoptimization_lock_ = nullptr;
 std::vector<DeoptimizationRequest> Dbg::deoptimization_requests_;
 size_t Dbg::full_deoptimization_event_count_ = 0;
 size_t Dbg::delayed_full_undeoptimization_count_ = 0;
+
+// Instrumentation event reference counters.
+size_t Dbg::dex_pc_change_event_ref_count_ = 0;
+size_t Dbg::method_enter_event_ref_count_ = 0;
+size_t Dbg::method_exit_event_ref_count_ = 0;
+size_t Dbg::field_read_event_ref_count_ = 0;
+size_t Dbg::field_write_event_ref_count_ = 0;
+size_t Dbg::exception_catch_event_ref_count_ = 0;
+uint32_t Dbg::instrumentation_events_ = 0;
 
 // Breakpoints.
 static std::vector<Breakpoint> gBreakpoints GUARDED_BY(Locks::breakpoint_lock_);
@@ -641,14 +650,6 @@ bool Dbg::IsDisposed() {
   return gDisposed;
 }
 
-// All the instrumentation events the debugger is registered for.
-static constexpr uint32_t kListenerEvents = instrumentation::Instrumentation::kMethodEntered |
-                                            instrumentation::Instrumentation::kMethodExited |
-                                            instrumentation::Instrumentation::kDexPcMoved |
-                                            instrumentation::Instrumentation::kFieldRead |
-                                            instrumentation::Instrumentation::kFieldWritten |
-                                            instrumentation::Instrumentation::kExceptionCaught;
-
 void Dbg::GoActive() {
   // Enable all debugging features, including scans for breakpoints.
   // This is a no-op if we're already active.
@@ -668,6 +669,12 @@ void Dbg::GoActive() {
     CHECK_EQ(deoptimization_requests_.size(), 0U);
     CHECK_EQ(full_deoptimization_event_count_, 0U);
     CHECK_EQ(delayed_full_undeoptimization_count_, 0U);
+    CHECK_EQ(dex_pc_change_event_ref_count_, 0U);
+    CHECK_EQ(method_enter_event_ref_count_, 0U);
+    CHECK_EQ(method_exit_event_ref_count_, 0U);
+    CHECK_EQ(field_read_event_ref_count_, 0U);
+    CHECK_EQ(field_write_event_ref_count_, 0U);
+    CHECK_EQ(exception_catch_event_ref_count_, 0U);
   }
 
   Runtime* runtime = Runtime::Current();
@@ -676,7 +683,7 @@ void Dbg::GoActive() {
   ThreadState old_state = self->SetStateUnsafe(kRunnable);
   CHECK_NE(old_state, kRunnable);
   runtime->GetInstrumentation()->EnableDeoptimization();
-  runtime->GetInstrumentation()->AddListener(&gDebugInstrumentationListener, kListenerEvents);
+  instrumentation_events_ = 0;
   gDebuggerActive = true;
   CHECK_EQ(self->SetStateUnsafe(old_state), kRunnable);
   runtime->GetThreadList()->ResumeAll();
@@ -708,7 +715,11 @@ void Dbg::Disconnected() {
       full_deoptimization_event_count_ = 0U;
       delayed_full_undeoptimization_count_ = 0U;
     }
-    runtime->GetInstrumentation()->RemoveListener(&gDebugInstrumentationListener, kListenerEvents);
+    if (instrumentation_events_ != 0) {
+      runtime->GetInstrumentation()->RemoveListener(&gDebugInstrumentationListener,
+                                                    instrumentation_events_);
+      instrumentation_events_ = 0;
+    }
     runtime->GetInstrumentation()->DisableDeoptimization();
     gDebuggerActive = false;
   }
@@ -2586,12 +2597,11 @@ void Dbg::PostClassPrepare(mirror::Class* c) {
 }
 
 void Dbg::UpdateDebugger(Thread* thread, mirror::Object* this_object,
-                         mirror::ArtMethod* m, uint32_t dex_pc) {
+                         mirror::ArtMethod* m, uint32_t dex_pc,
+                         int event_flags, const JValue* return_value) {
   if (!IsDebuggerActive() || dex_pc == static_cast<uint32_t>(-2) /* fake method exit */) {
     return;
   }
-
-  int event_flags = 0;
 
   if (IsBreakpoint(m, dex_pc)) {
     event_flags |= kBreakpoint;
@@ -2660,7 +2670,26 @@ void Dbg::UpdateDebugger(Thread* thread, mirror::Object* this_object,
   // If there's something interesting going on, see if it matches one
   // of the debugger filters.
   if (event_flags != 0) {
-    Dbg::PostLocationEvent(m, dex_pc, this_object, event_flags, nullptr);
+    Dbg::PostLocationEvent(m, dex_pc, this_object, event_flags, return_value);
+  }
+}
+
+size_t* Dbg::GetReferenceCounterForEvent(uint32_t instrumentation_event) {
+  switch (instrumentation_event) {
+    case instrumentation::Instrumentation::kMethodEntered:
+      return &method_enter_event_ref_count_;
+    case instrumentation::Instrumentation::kMethodExited:
+      return &method_exit_event_ref_count_;
+    case instrumentation::Instrumentation::kDexPcMoved:
+      return &dex_pc_change_event_ref_count_;
+    case instrumentation::Instrumentation::kFieldRead:
+      return &field_read_event_ref_count_;
+    case instrumentation::Instrumentation::kFieldWritten:
+      return &field_write_event_ref_count_;
+    case instrumentation::Instrumentation::kExceptionCaught:
+      return &exception_catch_event_ref_count_;
+    default:
+      return nullptr;
   }
 }
 
@@ -2670,6 +2699,19 @@ void Dbg::ProcessDeoptimizationRequest(const DeoptimizationRequest& request) {
   switch (request.kind) {
     case DeoptimizationRequest::kNothing:
       LOG(WARNING) << "Ignoring empty deoptimization request.";
+      break;
+    case DeoptimizationRequest::kRegisterForEvent:
+      VLOG(jdwp) << StringPrintf("Add debugger as listener for instrumentation event 0x%x",
+                                 request.instrumentation_event);
+      instrumentation->AddListener(&gDebugInstrumentationListener, request.instrumentation_event);
+      instrumentation_events_ |= request.instrumentation_event;
+      break;
+    case DeoptimizationRequest::kUnregisterForEvent:
+      VLOG(jdwp) << StringPrintf("Remove debugger as listener for instrumentation event 0x%x",
+                                 request.instrumentation_event);
+      instrumentation->RemoveListener(&gDebugInstrumentationListener,
+                                      request.instrumentation_event);
+      instrumentation_events_ &= ~request.instrumentation_event;
       break;
     case DeoptimizationRequest::kFullDeoptimization:
       VLOG(jdwp) << "Deoptimize the world ...";
@@ -2729,6 +2771,32 @@ void Dbg::RequestDeoptimization(const DeoptimizationRequest& req) {
 
 void Dbg::RequestDeoptimizationLocked(const DeoptimizationRequest& req) {
   switch (req.kind) {
+    case DeoptimizationRequest::kRegisterForEvent: {
+      DCHECK_NE(req.instrumentation_event, 0u);
+      size_t* counter = GetReferenceCounterForEvent(req.instrumentation_event);
+      CHECK(counter != nullptr) << StringPrintf("No counter for instrumentation event 0x%x",
+                                                req.instrumentation_event);
+      if (*counter == 0) {
+        VLOG(jdwp) << StringPrintf("Queue request #%zd to start listening to instrumentation event 0x%x",
+                                   deoptimization_requests_.size(), req.instrumentation_event);
+        deoptimization_requests_.push_back(req);
+      }
+      *counter = *counter + 1;
+      break;
+    }
+    case DeoptimizationRequest::kUnregisterForEvent: {
+      DCHECK_NE(req.instrumentation_event, 0u);
+      size_t* counter = GetReferenceCounterForEvent(req.instrumentation_event);
+      CHECK(counter != nullptr) << StringPrintf("No counter for instrumentation event 0x%x",
+                                                req.instrumentation_event);
+      *counter = *counter - 1;
+      if (*counter == 0) {
+        VLOG(jdwp) << StringPrintf("Queue request #%zd to stop listening to instrumentation event 0x%x",
+                                   deoptimization_requests_.size(), req.instrumentation_event);
+        deoptimization_requests_.push_back(req);
+      }
+      break;
+    }
     case DeoptimizationRequest::kFullDeoptimization: {
       DCHECK(req.method == nullptr);
       if (full_deoptimization_event_count_ == 0) {
@@ -2741,7 +2809,6 @@ void Dbg::RequestDeoptimizationLocked(const DeoptimizationRequest& req) {
     }
     case DeoptimizationRequest::kFullUndeoptimization: {
       DCHECK(req.method == nullptr);
-      DCHECK_GT(full_deoptimization_event_count_, 0U);
       --full_deoptimization_event_count_;
       if (full_deoptimization_event_count_ == 0) {
         VLOG(jdwp) << "Queue request #" << deoptimization_requests_.size()

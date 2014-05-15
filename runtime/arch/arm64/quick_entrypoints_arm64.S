@@ -1014,7 +1014,7 @@ ENTRY art_quick_lock_object
     cbnz   w1, .Lnot_unlocked         // already thin locked
     stxr   w3, w2, [x4]
     cbnz   w3, .Lstrex_fail           // store failed, retry
-    dmb    ishld                      // full (LoadLoad) memory barrier, TODO: acquire-release
+    dmb    ishld                      // full (LoadLoad|LoadStore) memory barrier
     ret
 .Lstrex_fail:
     b .Lretry_lock                    // unlikely forward branch, need to reload and recheck r1/r2
@@ -1058,7 +1058,7 @@ ENTRY art_quick_unlock_object
     cmp    w1, #65536
     bpl    .Lrecursive_thin_unlock
     // transition to unlocked, w3 holds 0
-    dmb    ish                        // full (StoreLoad) memory barrier
+    dmb    ish                        // full (LoadStore|StoreStore) memory barrier
     str    w3, [x0, #LOCK_WORD_OFFSET]
     ret
 .Lrecursive_thin_unlock:
@@ -1444,7 +1444,7 @@ END art_quick_resolution_trampoline
  * | RDI/Method*       |  <- X0
  * #-------------------#
  * | local ref cookie  | // 4B
- * |   handle scope size       | // 4B
+ * | handle scope size | // 4B
  * #-------------------#
  * | JNI Call Stack    |
  * #-------------------#    <--- SP on native call
