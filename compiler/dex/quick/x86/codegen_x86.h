@@ -24,7 +24,7 @@ namespace art {
 
 class X86Mir2Lir FINAL : public Mir2Lir {
   public:
-    X86Mir2Lir(CompilationUnit* cu, MIRGraph* mir_graph, ArenaAllocator* arena);
+    X86Mir2Lir(CompilationUnit* cu, MIRGraph* mir_graph, ArenaAllocator* arena, bool gen64bit);
 
     // Required for target - codegen helpers.
     bool SmallLiteralDivRem(Instruction::Code dalvik_opcode, bool is_div, RegLocation rl_src,
@@ -142,7 +142,7 @@ class X86Mir2Lir FINAL : public Mir2Lir {
     void GenFusedFPCmpBranch(BasicBlock* bb, MIR* mir, bool gt_bias, bool is_double);
     void GenFusedLongCmpBranch(BasicBlock* bb, MIR* mir);
     void GenSelect(BasicBlock* bb, MIR* mir);
-    void GenMemBarrier(MemBarrierKind barrier_kind);
+    bool GenMemBarrier(MemBarrierKind barrier_kind);
     void GenMoveException(RegLocation rl_dest);
     void GenMultiplyByTwoBitMultiplier(RegLocation rl_src, RegLocation rl_result, int lit,
                                        int first_bit, int second_bit);
@@ -325,10 +325,12 @@ class X86Mir2Lir FINAL : public Mir2Lir {
     std::vector<uint8_t>* ReturnCallFrameInformation();
 
   private:
+    size_t ComputeSize(const X86EncodingMap* entry, int base, int displacement, bool has_sib);
     void EmitPrefix(const X86EncodingMap* entry);
     void EmitOpcode(const X86EncodingMap* entry);
     void EmitPrefixAndOpcode(const X86EncodingMap* entry);
     void EmitDisp(uint8_t base, int disp);
+    void EmitModrmThread(uint8_t reg_or_opcode);
     void EmitModrmDisp(uint8_t reg_or_opcode, uint8_t base, int disp);
     void EmitModrmSibDisp(uint8_t reg_or_opcode, uint8_t base, uint8_t index, int scale, int disp);
     void EmitImm(const X86EncodingMap* entry, int imm);
@@ -404,6 +406,22 @@ class X86Mir2Lir FINAL : public Mir2Lir {
      * generated.
      */
     bool GenInlinedIndexOf(CallInfo* info, bool zero_based);
+
+    /*
+     * @brief Load 128 bit constant into vector register.
+     * @param bb The basic block in which the MIR is from.
+     * @param mir The MIR whose opcode is kMirConstVector
+     * @note vA is the TypeSize for the register.
+     * @note vB is the destination XMM register. arg[0..3] are 32 bit constant values.
+     */
+    void GenConst128(BasicBlock* bb, MIR* mir);
+
+    /*
+     * @brief Generate code for a vector opcode.
+     * @param bb The basic block in which the MIR is from.
+     * @param mir The MIR whose opcode is a non-standard opcode.
+     */
+    void GenMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir);
 
     /*
      * @brief Return the correct x86 opcode for the Dex operation
@@ -578,6 +596,8 @@ class X86Mir2Lir FINAL : public Mir2Lir {
      */
     void AnalyzeDoubleUse(RegLocation rl_use);
 
+    bool Gen64Bit() const  { return gen64bit_; }
+
     // Information derived from analysis of MIR
 
     // The compiler temporary for the code address of the method.
@@ -606,6 +626,25 @@ class X86Mir2Lir FINAL : public Mir2Lir {
 
     // Epilogue increment of stack pointer.
     LIR* stack_increment_;
+
+    // 64-bit mode
+    bool gen64bit_;
+
+    // The list of const vector literals.
+    LIR *const_vectors_;
+
+    /*
+     * @brief Search for a matching vector literal
+     * @param mir A kMirOpConst128b MIR instruction to match.
+     * @returns pointer to matching LIR constant, or nullptr if not found.
+     */
+    LIR *ScanVectorLiteral(MIR *mir);
+
+    /*
+     * @brief Add a constant vector literal
+     * @param mir A kMirOpConst128b MIR instruction to match.
+     */
+    LIR *AddVectorLiteral(MIR *mir);
 };
 
 }  // namespace art

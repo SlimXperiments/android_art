@@ -174,6 +174,8 @@ Mir2Lir* MipsCodeGenerator(CompilationUnit* const cu, MIRGraph* const mir_graph,
                           ArenaAllocator* const arena);
 Mir2Lir* X86CodeGenerator(CompilationUnit* const cu, MIRGraph* const mir_graph,
                           ArenaAllocator* const arena);
+Mir2Lir* X86_64CodeGenerator(CompilationUnit* const cu, MIRGraph* const mir_graph,
+                          ArenaAllocator* const arena);
 
 // Utility macros to traverse the LIR list.
 #define NEXT_LIR(lir) (lir->next)
@@ -1178,6 +1180,14 @@ class Mir2Lir : public Backend {
     virtual void GenFusedFPCmpBranch(BasicBlock* bb, MIR* mir, bool gt_bias, bool is_double) = 0;
     virtual void GenFusedLongCmpBranch(BasicBlock* bb, MIR* mir) = 0;
 
+    /*
+     * @brief Handle Machine Specific MIR Extended opcodes.
+     * @param bb The basic block in which the MIR is from.
+     * @param mir The MIR whose opcode is not standard extended MIR.
+     * @note Base class implementation will abort for unknown opcodes.
+     */
+    virtual void GenMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir);
+
     /**
      * @brief Lowers the kMirOpSelect MIR into LIR.
      * @param bb The basic block in which the MIR is from.
@@ -1192,8 +1202,9 @@ class Mir2Lir : public Backend {
      * barrier, then it will be used as such. Otherwise, a new LIR will be generated
      * that can keep the semantics.
      * @param barrier_kind The kind of memory barrier to generate.
+     * @return whether a new instruction was generated.
      */
-    virtual void GenMemBarrier(MemBarrierKind barrier_kind) = 0;
+    virtual bool GenMemBarrier(MemBarrierKind barrier_kind) = 0;
 
     virtual void GenMoveException(RegLocation rl_dest) = 0;
     virtual void GenMultiplyByTwoBitMultiplier(RegLocation rl_src, RegLocation rl_result, int lit,

@@ -37,11 +37,7 @@ ART_BUILD_TARGET_DEBUG ?= true
 ART_BUILD_HOST_NDEBUG ?= $(WITH_HOST_DALVIK)
 ART_BUILD_HOST_DEBUG ?= $(WITH_HOST_DALVIK)
 
-ifeq ($(BUILD_HOST_64bit),)
-ART_HOST_ARCH := x86
-else
-ART_HOST_ARCH := x86_64
-endif
+ART_HOST_ARCH := $(HOST_ARCH)
 
 ifeq ($(ART_BUILD_TARGET_NDEBUG),false)
 $(info Disabling ART_BUILD_TARGET_NDEBUG)
@@ -116,9 +112,11 @@ endif
 ART_DEFAULT_GC_TYPE ?= CMS
 ART_DEFAULT_GC_TYPE_CFLAGS := -DART_DEFAULT_GC_TYPE_IS_$(ART_DEFAULT_GC_TYPE)
 
-LLVM_ROOT_PATH := external/llvm
-# Don't fail a dalvik minimal host build.
--include $(LLVM_ROOT_PATH)/llvm.mk
+ifeq ($(ART_USE_PORTABLE_COMPILER),true)
+  LLVM_ROOT_PATH := external/llvm
+  # Don't fail a dalvik minimal host build.
+  -include $(LLVM_ROOT_PATH)/llvm.mk
+endif
 
 # Clang build support.
 # Target builds use GCC by default.
@@ -249,9 +247,18 @@ ART_TARGET_CFLAGS := $(art_cflags) -DART_TARGET -DART_BASE_ADDRESS=$(LIBART_IMG_
 ifeq ($(TARGET_CPU_SMP),true)
   ART_TARGET_CFLAGS += -DANDROID_SMP=1
 else
-  ART_TARGET_CFLAGS += -DANDROID_SMP=0
+  ifeq ($(TARGET_CPU_SMP),false)
+    ART_TARGET_CFLAGS += -DANDROID_SMP=0
+  else
+    $(warning TARGET_CPU_SMP should be (true|false), found $(TARGET_CPU_SMP))
+    # Make sure we emit barriers for the worst case.
+    ART_TARGET_CFLAGS += -DANDROID_SMP=1
+  endif
 endif
 ART_TARGET_CFLAGS += $(ART_DEFAULT_GC_TYPE_CFLAGS)
+
+# TODO: remove when target no longer implies stlport.
+ART_TARGET_CFLAGS += -DART_WITH_STLPORT=1
 
 # DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES is set in ../build/core/dex_preopt.mk based on
 # the TARGET_CPU_VARIANT

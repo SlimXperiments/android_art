@@ -26,53 +26,117 @@
 
 namespace art {
 
-static const RegStorage core_regs_arr[] = {
-    rs_rAX, rs_rCX, rs_rDX, rs_rBX, rs_rX86_SP, rs_rBP, rs_rSI, rs_rDI
+static const RegStorage core_regs_arr_32[] = {
+    rs_rAX, rs_rCX, rs_rDX, rs_rBX, rs_rX86_SP_32, rs_rBP, rs_rSI, rs_rDI,
+};
+static const RegStorage core_regs_arr_64[] = {
+    rs_rAX, rs_rCX, rs_rDX, rs_rBX, rs_rX86_SP_64, rs_rBP, rs_rSI, rs_rDI,
 #ifdef TARGET_REX_SUPPORT
     rs_r8, rs_r9, rs_r10, rs_r11, rs_r12, rs_r13, rs_r14, rs_r15
 #endif
 };
-static const RegStorage sp_regs_arr[] = {
+static const RegStorage sp_regs_arr_32[] = {
+    rs_fr0, rs_fr1, rs_fr2, rs_fr3, rs_fr4, rs_fr5, rs_fr6, rs_fr7,
+};
+static const RegStorage sp_regs_arr_64[] = {
     rs_fr0, rs_fr1, rs_fr2, rs_fr3, rs_fr4, rs_fr5, rs_fr6, rs_fr7,
 #ifdef TARGET_REX_SUPPORT
     rs_fr8, rs_fr9, rs_fr10, rs_fr11, rs_fr12, rs_fr13, rs_fr14, rs_fr15
 #endif
 };
-static const RegStorage dp_regs_arr[] = {
+static const RegStorage dp_regs_arr_32[] = {
+    rs_dr0, rs_dr1, rs_dr2, rs_dr3, rs_dr4, rs_dr5, rs_dr6, rs_dr7,
+};
+static const RegStorage dp_regs_arr_64[] = {
     rs_dr0, rs_dr1, rs_dr2, rs_dr3, rs_dr4, rs_dr5, rs_dr6, rs_dr7,
 #ifdef TARGET_REX_SUPPORT
     rs_dr8, rs_dr9, rs_dr10, rs_dr11, rs_dr12, rs_dr13, rs_dr14, rs_dr15
 #endif
 };
-static const RegStorage reserved_regs_arr[] = {rs_rX86_SP};
-static const RegStorage core_temps_arr[] = {rs_rAX, rs_rCX, rs_rDX, rs_rBX};
-static const RegStorage sp_temps_arr[] = {
+static const RegStorage reserved_regs_arr_32[] = {rs_rX86_SP_32};
+static const RegStorage reserved_regs_arr_64[] = {rs_rX86_SP_64};
+static const RegStorage core_temps_arr_32[] = {rs_rAX, rs_rCX, rs_rDX, rs_rBX};
+static const RegStorage core_temps_arr_64[] = {
+    rs_rAX, rs_rCX, rs_rDX, rs_rSI, rs_rDI,
+#ifdef TARGET_REX_SUPPORT
+    rs_r8, rs_r9, rs_r10, rs_r11
+#endif
+};
+static const RegStorage sp_temps_arr_32[] = {
+    rs_fr0, rs_fr1, rs_fr2, rs_fr3, rs_fr4, rs_fr5, rs_fr6, rs_fr7,
+};
+static const RegStorage sp_temps_arr_64[] = {
     rs_fr0, rs_fr1, rs_fr2, rs_fr3, rs_fr4, rs_fr5, rs_fr6, rs_fr7,
 #ifdef TARGET_REX_SUPPORT
     rs_fr8, rs_fr9, rs_fr10, rs_fr11, rs_fr12, rs_fr13, rs_fr14, rs_fr15
 #endif
 };
-static const RegStorage dp_temps_arr[] = {
+static const RegStorage dp_temps_arr_32[] = {
+    rs_dr0, rs_dr1, rs_dr2, rs_dr3, rs_dr4, rs_dr5, rs_dr6, rs_dr7,
+};
+static const RegStorage dp_temps_arr_64[] = {
     rs_dr0, rs_dr1, rs_dr2, rs_dr3, rs_dr4, rs_dr5, rs_dr6, rs_dr7,
 #ifdef TARGET_REX_SUPPORT
     rs_dr8, rs_dr9, rs_dr10, rs_dr11, rs_dr12, rs_dr13, rs_dr14, rs_dr15
 #endif
 };
 
-static const std::vector<RegStorage> core_regs(core_regs_arr,
-    core_regs_arr + sizeof(core_regs_arr) / sizeof(core_regs_arr[0]));
-static const std::vector<RegStorage> sp_regs(sp_regs_arr,
-    sp_regs_arr + sizeof(sp_regs_arr) / sizeof(sp_regs_arr[0]));
-static const std::vector<RegStorage> dp_regs(dp_regs_arr,
-    dp_regs_arr + sizeof(dp_regs_arr) / sizeof(dp_regs_arr[0]));
-static const std::vector<RegStorage> reserved_regs(reserved_regs_arr,
-    reserved_regs_arr + sizeof(reserved_regs_arr) / sizeof(reserved_regs_arr[0]));
-static const std::vector<RegStorage> core_temps(core_temps_arr,
-    core_temps_arr + sizeof(core_temps_arr) / sizeof(core_temps_arr[0]));
-static const std::vector<RegStorage> sp_temps(sp_temps_arr,
-    sp_temps_arr + sizeof(sp_temps_arr) / sizeof(sp_temps_arr[0]));
-static const std::vector<RegStorage> dp_temps(dp_temps_arr,
-    dp_temps_arr + sizeof(dp_temps_arr) / sizeof(dp_temps_arr[0]));
+static const std::vector<RegStorage> core_regs_32(core_regs_arr_32,
+    core_regs_arr_32 + sizeof(core_regs_arr_32) / sizeof(core_regs_arr_32[0]));
+static const std::vector<RegStorage> core_regs_64(core_regs_arr_64,
+    core_regs_arr_64 + sizeof(core_regs_arr_64) / sizeof(core_regs_arr_64[0]));
+static const std::vector<RegStorage> sp_regs_32(sp_regs_arr_32,
+    sp_regs_arr_32 + sizeof(sp_regs_arr_32) / sizeof(sp_regs_arr_32[0]));
+static const std::vector<RegStorage> sp_regs_64(sp_regs_arr_64,
+    sp_regs_arr_64 + sizeof(sp_regs_arr_64) / sizeof(sp_regs_arr_64[0]));
+static const std::vector<RegStorage> dp_regs_32(dp_regs_arr_32,
+    dp_regs_arr_32 + sizeof(dp_regs_arr_32) / sizeof(dp_regs_arr_32[0]));
+static const std::vector<RegStorage> dp_regs_64(dp_regs_arr_64,
+    dp_regs_arr_64 + sizeof(dp_regs_arr_64) / sizeof(dp_regs_arr_64[0]));
+static const std::vector<RegStorage> reserved_regs_32(reserved_regs_arr_32,
+    reserved_regs_arr_32 + sizeof(reserved_regs_arr_32) / sizeof(reserved_regs_arr_32[0]));
+static const std::vector<RegStorage> reserved_regs_64(reserved_regs_arr_64,
+    reserved_regs_arr_64 + sizeof(reserved_regs_arr_64) / sizeof(reserved_regs_arr_64[0]));
+static const std::vector<RegStorage> core_temps_32(core_temps_arr_32,
+    core_temps_arr_32 + sizeof(core_temps_arr_32) / sizeof(core_temps_arr_32[0]));
+static const std::vector<RegStorage> core_temps_64(core_temps_arr_64,
+    core_temps_arr_64 + sizeof(core_temps_arr_64) / sizeof(core_temps_arr_64[0]));
+static const std::vector<RegStorage> sp_temps_32(sp_temps_arr_32,
+    sp_temps_arr_32 + sizeof(sp_temps_arr_32) / sizeof(sp_temps_arr_32[0]));
+static const std::vector<RegStorage> sp_temps_64(sp_temps_arr_64,
+    sp_temps_arr_64 + sizeof(sp_temps_arr_64) / sizeof(sp_temps_arr_64[0]));
+static const std::vector<RegStorage> dp_temps_32(dp_temps_arr_32,
+    dp_temps_arr_32 + sizeof(dp_temps_arr_32) / sizeof(dp_temps_arr_32[0]));
+static const std::vector<RegStorage> dp_temps_64(dp_temps_arr_64,
+    dp_temps_arr_64 + sizeof(dp_temps_arr_64) / sizeof(dp_temps_arr_64[0]));
+
+RegStorage rs_rX86_SP;
+
+X86NativeRegisterPool rX86_ARG0;
+X86NativeRegisterPool rX86_ARG1;
+X86NativeRegisterPool rX86_ARG2;
+X86NativeRegisterPool rX86_ARG3;
+X86NativeRegisterPool rX86_FARG0;
+X86NativeRegisterPool rX86_FARG1;
+X86NativeRegisterPool rX86_FARG2;
+X86NativeRegisterPool rX86_FARG3;
+X86NativeRegisterPool rX86_RET0;
+X86NativeRegisterPool rX86_RET1;
+X86NativeRegisterPool rX86_INVOKE_TGT;
+X86NativeRegisterPool rX86_COUNT;
+
+RegStorage rs_rX86_ARG0;
+RegStorage rs_rX86_ARG1;
+RegStorage rs_rX86_ARG2;
+RegStorage rs_rX86_ARG3;
+RegStorage rs_rX86_FARG0;
+RegStorage rs_rX86_FARG1;
+RegStorage rs_rX86_FARG2;
+RegStorage rs_rX86_FARG3;
+RegStorage rs_rX86_RET0;
+RegStorage rs_rX86_RET1;
+RegStorage rs_rX86_INVOKE_TGT;
+RegStorage rs_rX86_COUNT;
 
 RegLocation X86Mir2Lir::LocCReturn() {
   return x86_loc_c_return;
@@ -421,11 +485,12 @@ bool X86Mir2Lir::ProvidesFullMemoryBarrier(X86OpCode opcode) {
     return false;
 }
 
-void X86Mir2Lir::GenMemBarrier(MemBarrierKind barrier_kind) {
+bool X86Mir2Lir::GenMemBarrier(MemBarrierKind barrier_kind) {
 #if ANDROID_SMP != 0
   // Start off with using the last LIR as the barrier. If it is not enough, then we will update it.
   LIR* mem_barrier = last_lir_insn_;
 
+  bool ret = false;
   /*
    * According to the JSR-133 Cookbook, for x86 only StoreLoad barriers need memory fence. All other barriers
    * (LoadLoad, LoadStore, StoreStore) are nops due to the x86 memory model. For those cases, all we need
@@ -435,11 +500,13 @@ void X86Mir2Lir::GenMemBarrier(MemBarrierKind barrier_kind) {
     // If no LIR exists already that can be used a barrier, then generate an mfence.
     if (mem_barrier == nullptr) {
       mem_barrier = NewLIR0(kX86Mfence);
+      ret = true;
     }
 
     // If last instruction does not provide full barrier, then insert an mfence.
     if (ProvidesFullMemoryBarrier(static_cast<X86OpCode>(mem_barrier->opcode)) == false) {
       mem_barrier = NewLIR0(kX86Mfence);
+      ret = true;
     }
   }
 
@@ -451,6 +518,9 @@ void X86Mir2Lir::GenMemBarrier(MemBarrierKind barrier_kind) {
     DCHECK(!mem_barrier->flags.use_def_invalid);
     mem_barrier->u.m.def_mask = ENCODE_ALL;
   }
+  return ret;
+#else
+  return false;
 #endif
 }
 
@@ -472,8 +542,13 @@ RegStorage X86Mir2Lir::AllocTypedTemp(bool fp_hint, int reg_class) {
 }
 
 void X86Mir2Lir::CompilerInitializeRegAlloc() {
-  reg_pool_ = new (arena_) RegisterPool(this, arena_, core_regs, sp_regs, dp_regs, reserved_regs,
-                                        core_temps, sp_temps, dp_temps);
+  if (Gen64Bit()) {
+    reg_pool_ = new (arena_) RegisterPool(this, arena_, core_regs_64, sp_regs_64, dp_regs_64, reserved_regs_64,
+                                        core_temps_64, sp_temps_64, dp_temps_64);
+  } else {
+    reg_pool_ = new (arena_) RegisterPool(this, arena_, core_regs_32, sp_regs_32, dp_regs_32, reserved_regs_32,
+                                        core_temps_32, sp_temps_32, dp_temps_32);
+  }
 
   // Target-specific adjustments.
 
@@ -517,11 +592,11 @@ void X86Mir2Lir::SpillCoreRegs() {
   }
   // Spill mask not including fake return address register
   uint32_t mask = core_spill_mask_ & ~(1 << rs_rRET.GetRegNum());
-  int offset = frame_size_ - (4 * num_core_spills_);
+  int offset = frame_size_ - (GetInstructionSetPointerSize(cu_->instruction_set) * num_core_spills_);
   for (int reg = 0; mask; mask >>= 1, reg++) {
     if (mask & 0x1) {
       StoreWordDisp(rs_rX86_SP, offset, RegStorage::Solo32(reg));
-      offset += 4;
+      offset += GetInstructionSetPointerSize(cu_->instruction_set);
     }
   }
 }
@@ -532,11 +607,11 @@ void X86Mir2Lir::UnSpillCoreRegs() {
   }
   // Spill mask not including fake return address register
   uint32_t mask = core_spill_mask_ & ~(1 << rs_rRET.GetRegNum());
-  int offset = frame_size_ - (4 * num_core_spills_);
+  int offset = frame_size_ - (GetInstructionSetPointerSize(cu_->instruction_set) * num_core_spills_);
   for (int reg = 0; mask; mask >>= 1, reg++) {
     if (mask & 0x1) {
       LoadWordDisp(rs_rX86_SP, offset, RegStorage::Solo32(reg));
-      offset += 4;
+      offset += GetInstructionSetPointerSize(cu_->instruction_set);
     }
   }
 }
@@ -560,27 +635,74 @@ RegisterClass X86Mir2Lir::RegClassForFieldLoadStore(OpSize size, bool is_volatil
   return RegClassBySize(size);
 }
 
-X86Mir2Lir::X86Mir2Lir(CompilationUnit* cu, MIRGraph* mir_graph, ArenaAllocator* arena)
+X86Mir2Lir::X86Mir2Lir(CompilationUnit* cu, MIRGraph* mir_graph, ArenaAllocator* arena, bool gen64bit)
     : Mir2Lir(cu, mir_graph, arena),
       base_of_code_(nullptr), store_method_addr_(false), store_method_addr_used_(false),
       method_address_insns_(arena, 100, kGrowableArrayMisc),
       class_type_address_insns_(arena, 100, kGrowableArrayMisc),
       call_method_insns_(arena, 100, kGrowableArrayMisc),
-      stack_decrement_(nullptr), stack_increment_(nullptr) {
+      stack_decrement_(nullptr), stack_increment_(nullptr), gen64bit_(gen64bit),
+      const_vectors_(nullptr) {
+  store_method_addr_used_ = false;
   if (kIsDebugBuild) {
     for (int i = 0; i < kX86Last; i++) {
       if (X86Mir2Lir::EncodingMap[i].opcode != i) {
         LOG(FATAL) << "Encoding order for " << X86Mir2Lir::EncodingMap[i].name
-            << " is wrong: expecting " << i << ", seeing "
-            << static_cast<int>(X86Mir2Lir::EncodingMap[i].opcode);
+                   << " is wrong: expecting " << i << ", seeing "
+                   << static_cast<int>(X86Mir2Lir::EncodingMap[i].opcode);
       }
     }
   }
+  if (Gen64Bit()) {
+    rs_rX86_SP = rs_rX86_SP_64;
+
+    rs_rX86_ARG0 = rs_rDI;
+    rs_rX86_ARG1 = rs_rSI;
+    rs_rX86_ARG2 = rs_rDX;
+    rs_rX86_ARG3 = rs_rCX;
+    rX86_ARG0 = rDI;
+    rX86_ARG1 = rSI;
+    rX86_ARG2 = rDX;
+    rX86_ARG3 = rCX;
+    // TODO: ARG4(r8), ARG5(r9), floating point args.
+  } else {
+    rs_rX86_SP = rs_rX86_SP_32;
+
+    rs_rX86_ARG0 = rs_rAX;
+    rs_rX86_ARG1 = rs_rCX;
+    rs_rX86_ARG2 = rs_rDX;
+    rs_rX86_ARG3 = rs_rBX;
+    rX86_ARG0 = rAX;
+    rX86_ARG1 = rCX;
+    rX86_ARG2 = rDX;
+    rX86_ARG3 = rBX;
+  }
+  rs_rX86_FARG0 = rs_rAX;
+  rs_rX86_FARG1 = rs_rCX;
+  rs_rX86_FARG2 = rs_rDX;
+  rs_rX86_FARG3 = rs_rBX;
+  rs_rX86_RET0 = rs_rAX;
+  rs_rX86_RET1 = rs_rDX;
+  rs_rX86_INVOKE_TGT = rs_rAX;
+  rs_rX86_COUNT = rs_rCX;
+  rX86_FARG0 = rAX;
+  rX86_FARG1 = rCX;
+  rX86_FARG2 = rDX;
+  rX86_FARG3 = rBX;
+  rX86_RET0 = rAX;
+  rX86_RET1 = rDX;
+  rX86_INVOKE_TGT = rAX;
+  rX86_COUNT = rCX;
 }
 
 Mir2Lir* X86CodeGenerator(CompilationUnit* const cu, MIRGraph* const mir_graph,
                           ArenaAllocator* const arena) {
-  return new X86Mir2Lir(cu, mir_graph, arena);
+  return new X86Mir2Lir(cu, mir_graph, arena, false);
+}
+
+Mir2Lir* X86_64CodeGenerator(CompilationUnit* const cu, MIRGraph* const mir_graph,
+                          ArenaAllocator* const arena) {
+  return new X86Mir2Lir(cu, mir_graph, arena, true);
 }
 
 // Not used in x86
@@ -718,11 +840,45 @@ LIR *X86Mir2Lir::CallWithLinkerFixup(const MethodReference& target_method, Invok
   return call;
 }
 
+/*
+ * @brief Enter a 32 bit quantity into a buffer
+ * @param buf buffer.
+ * @param data Data value.
+ */
+
+static void PushWord(std::vector<uint8_t>&buf, int32_t data) {
+  buf.push_back(data & 0xff);
+  buf.push_back((data >> 8) & 0xff);
+  buf.push_back((data >> 16) & 0xff);
+  buf.push_back((data >> 24) & 0xff);
+}
+
 void X86Mir2Lir::InstallLiteralPools() {
   // These are handled differently for x86.
   DCHECK(code_literal_list_ == nullptr);
   DCHECK(method_literal_list_ == nullptr);
   DCHECK(class_literal_list_ == nullptr);
+
+  // Align to 16 byte boundary.  We have implicit knowledge that the start of the method is
+  // on a 4 byte boundary.   How can I check this if it changes (other than aligned loads
+  // will fail at runtime)?
+  if (const_vectors_ != nullptr) {
+    int align_size = (16-4) - (code_buffer_.size() & 0xF);
+    if (align_size < 0) {
+      align_size += 16;
+    }
+
+    while (align_size > 0) {
+      code_buffer_.push_back(0);
+      align_size--;
+    }
+    for (LIR *p = const_vectors_; p != nullptr; p = p->next) {
+      PushWord(code_buffer_, p->operands[0]);
+      PushWord(code_buffer_, p->operands[1]);
+      PushWord(code_buffer_, p->operands[2]);
+      PushWord(code_buffer_, p->operands[3]);
+    }
+  }
 
   // Handle the fixups for methods.
   for (uint32_t i = 0; i < method_address_insns_.Size(); i++) {
@@ -954,18 +1110,6 @@ bool X86Mir2Lir::GenInlinedIndexOf(CallInfo* info, bool zero_based) {
 }
 
 /*
- * @brief Enter a 32 bit quantity into the FDE buffer
- * @param buf FDE buffer.
- * @param data Data value.
- */
-static void PushWord(std::vector<uint8_t>&buf, int data) {
-  buf.push_back(data & 0xff);
-  buf.push_back((data >> 8) & 0xff);
-  buf.push_back((data >> 16) & 0xff);
-  buf.push_back((data >> 24) & 0xff);
-}
-
-/*
  * @brief Enter an 'advance LOC' into the FDE buffer
  * @param buf FDE buffer.
  * @param increment Amount by which to increase the current location.
@@ -1113,6 +1257,75 @@ std::vector<uint8_t>* X86Mir2Lir::ReturnCallFrameInformation() {
   (*cfi_info)[2] = length >> 16;
   (*cfi_info)[3] = length >> 24;
   return cfi_info;
+}
+
+void X86Mir2Lir::GenMachineSpecificExtendedMethodMIR(BasicBlock* bb, MIR* mir) {
+  switch (static_cast<ExtendedMIROpcode>(mir->dalvikInsn.opcode)) {
+    case kMirOpConstVector:
+      GenConst128(bb, mir);
+      break;
+    default:
+      break;
+  }
+}
+
+void X86Mir2Lir::GenConst128(BasicBlock* bb, MIR* mir) {
+  int type_size = mir->dalvikInsn.vA;
+  // We support 128 bit vectors.
+  DCHECK_EQ(type_size & 0xFFFF, 128);
+  int reg = mir->dalvikInsn.vB;
+  DCHECK_LT(reg, 8);
+  uint32_t *args = mir->dalvikInsn.arg;
+  // Check for all 0 case.
+  if (args[0] == 0 && args[1] == 0 && args[2] == 0 && args[3] == 0) {
+    NewLIR2(kX86XorpsRR, reg, reg);
+    return;
+  }
+  // Okay, load it from the constant vector area.
+  LIR *data_target = ScanVectorLiteral(mir);
+  if (data_target == nullptr) {
+    data_target = AddVectorLiteral(mir);
+  }
+
+  // Address the start of the method.
+  RegLocation rl_method = mir_graph_->GetRegLocation(base_of_code_->s_reg_low);
+  rl_method = LoadValue(rl_method, kCoreReg);
+
+  // Load the proper value from the literal area.
+  // We don't know the proper offset for the value, so pick one that will force
+  // 4 byte offset.  We will fix this up in the assembler later to have the right
+  // value.
+  LIR *load = NewLIR3(kX86Mova128RM, reg, rl_method.reg.GetReg(),  256 /* bogus */);
+  load->flags.fixup = kFixupLoad;
+  load->target = data_target;
+  SetMemRefType(load, true, kLiteral);
+}
+
+LIR *X86Mir2Lir::ScanVectorLiteral(MIR *mir) {
+  int *args = reinterpret_cast<int*>(mir->dalvikInsn.arg);
+  for (LIR *p = const_vectors_; p != nullptr; p = p->next) {
+    if (args[0] == p->operands[0] && args[1] == p->operands[1] &&
+        args[2] == p->operands[2] && args[3] == p->operands[3]) {
+      return p;
+    }
+  }
+  return nullptr;
+}
+
+LIR *X86Mir2Lir::AddVectorLiteral(MIR *mir) {
+  LIR* new_value = static_cast<LIR*>(arena_->Alloc(sizeof(LIR), kArenaAllocData));
+  int *args = reinterpret_cast<int*>(mir->dalvikInsn.arg);
+  new_value->operands[0] = args[0];
+  new_value->operands[1] = args[1];
+  new_value->operands[2] = args[2];
+  new_value->operands[3] = args[3];
+  new_value->next = const_vectors_;
+  if (const_vectors_ == nullptr) {
+    estimated_native_code_size_ += 12;  // Amount needed to align to 16 byte boundary.
+  }
+  estimated_native_code_size_ += 16;  // Space for one vector.
+  const_vectors_ = new_value;
+  return new_value;
 }
 
 }  // namespace art

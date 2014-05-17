@@ -16,6 +16,7 @@
 
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <algorithm>
@@ -24,7 +25,7 @@
 #include "JniInvocation.h"
 #include "ScopedLocalRef.h"
 #include "toStringArray.h"
-#include "UniquePtr.h"
+#include "UniquePtrCompat.h"
 
 namespace art {
 

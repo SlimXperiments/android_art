@@ -19,7 +19,7 @@
 #include <inttypes.h>
 #include <backtrace/BacktraceMap.h>
 
-#include "UniquePtr.h"
+#include "UniquePtrCompat.h"
 #include "base/stringprintf.h"
 #include "ScopedFd.h"
 #include "utils.h"
@@ -47,8 +47,8 @@ static std::ostream& operator<<(
 }
 
 #if defined(__LP64__) && !defined(__x86_64__)
-// Where to start with low memory allocation.
-static constexpr uintptr_t LOW_MEM_START = kPageSize * 2;
+// Where to start with low memory allocation. The first 64KB is protected by SELinux.
+static constexpr uintptr_t LOW_MEM_START = 64 * KB;
 
 uintptr_t MemMap::next_mem_pos_ = LOW_MEM_START;   // first page to check for low-mem extent
 #endif
@@ -128,6 +128,20 @@ MemMap* MemMap::MapAnonymous(const char* name, byte* expected, size_t byte_count
   // We need to store and potentially set an error number for pretty printing of errors
   int saved_errno = 0;
 
+#ifdef __LP64__
+  // When requesting low_4g memory and having an expectation, the requested range should fit into
+  // 4GB.
+  if (low_4gb && (
+      // Start out of bounds.
+      (reinterpret_cast<uintptr_t>(expected) >> 32) != 0 ||
+      // End out of bounds. For simplicity, this will fail for the last page of memory.
+      (reinterpret_cast<uintptr_t>(expected + page_aligned_byte_count) >> 32) != 0)) {
+    *error_msg = StringPrintf("The requested address space (%p, %p) cannot fit in low_4gb",
+                              expected, expected + page_aligned_byte_count);
+    return nullptr;
+  }
+#endif
+
   // TODO:
   // A page allocator would be a useful abstraction here, as
   // 1) It is doubtful that MAP_32BIT on x86_64 is doing the right job for us
@@ -192,7 +206,7 @@ MemMap* MemMap::MapAnonymous(const char* name, byte* expected, size_t byte_count
 
 #else
 #ifdef __x86_64__
-  if (low_4gb) {
+  if (low_4gb && expected == nullptr) {
     flags |= MAP_32BIT;
   }
 #endif

@@ -62,7 +62,7 @@
 #include "scoped_thread_state_change.h"
 #include "handle_scope-inl.h"
 #include "thread.h"
-#include "UniquePtr.h"
+#include "UniquePtrCompat.h"
 #include "utils.h"
 #include "verifier/method_verifier.h"
 #include "well_known_classes.h"
@@ -190,6 +190,9 @@ ClassLinker::ClassLinker(InternTable* intern_table)
   CHECK_EQ(arraysize(class_roots_descriptors_), size_t(kClassRootsMax));
   memset(find_array_class_cache_, 0, kFindArrayCacheSize * sizeof(mirror::Class*));
 }
+
+// To set a value for generic JNI. May be necessary in compiler tests.
+extern "C" void art_quick_generic_jni_trampoline(mirror::ArtMethod*);
 
 void ClassLinker::InitFromCompiler(const std::vector<const DexFile*>& boot_class_path) {
   VLOG(startup) << "ClassLinker::Init";
@@ -342,6 +345,10 @@ void ClassLinker::InitFromCompiler(const std::vector<const DexFile*>& boot_class
   runtime->SetResolutionMethod(runtime->CreateResolutionMethod());
   runtime->SetImtConflictMethod(runtime->CreateImtConflictMethod());
   runtime->SetDefaultImt(runtime->CreateDefaultImt(this));
+
+  // Set up GenericJNI entrypoint. That is mainly a hack for common_compiler_test.h so that
+  // we do not need friend classes or a publicly exposed setter.
+  quick_generic_jni_trampoline_ = reinterpret_cast<void*>(art_quick_generic_jni_trampoline);
 
   // Object, String and DexCache need to be rerun through FindSystemClass to finish init
   java_lang_Object->SetStatus(mirror::Class::kStatusNotReady, self);
@@ -1325,8 +1332,8 @@ static mirror::Class* EnsureResolved(Thread* self, mirror::Class* klass)
   // Wait for the class if it has not already been linked.
   if (!klass->IsResolved() && !klass->IsErroneous()) {
     StackHandleScope<1> hs(self);
-    Handle<mirror::Class> h_class(hs.NewHandle(klass));
-    ObjectLock<mirror::Class> lock(self, &h_class);
+    HandleWrapper<mirror::Class> h_class(hs.NewHandleWrapper(&klass));
+    ObjectLock<mirror::Class> lock(self, h_class);
     // Check for circular dependencies between classes.
     if (!h_class->IsResolved() && h_class->GetClinitThreadId() == self->GetTid()) {
       ThrowClassCircularityError(h_class.Get());
@@ -1337,7 +1344,6 @@ static mirror::Class* EnsureResolved(Thread* self, mirror::Class* klass)
     while (!h_class->IsResolved() && !h_class->IsErroneous()) {
       lock.WaitIgnoringInterrupts();
     }
-    klass = h_class.Get();
   }
   if (klass->IsErroneous()) {
     ThrowEarlierClassFailure(klass);
@@ -1471,7 +1477,7 @@ mirror::Class* ClassLinker::DefineClass(const char* descriptor,
     klass->SetStatus(mirror::Class::kStatusError, self);
     return NULL;
   }
-  ObjectLock<mirror::Class> lock(self, &klass);
+  ObjectLock<mirror::Class> lock(self, klass);
   klass->SetClinitThreadId(self->GetTid());
   // Add the newly loaded class to the loaded classes table.
   mirror::Class* existing = InsertClass(descriptor, klass.Get(), Hash(descriptor));
@@ -1777,9 +1783,10 @@ void ClassLinker::FixupStaticTrampolines(mirror::Class* klass) {
   // Ignore virtual methods on the iterator.
 }
 
-static void LinkCode(const Handle<mirror::ArtMethod>& method, const OatFile::OatClass* oat_class,
-                     const DexFile& dex_file, uint32_t dex_method_index, uint32_t method_index)
-    SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
+void ClassLinker::LinkCode(const Handle<mirror::ArtMethod>& method,
+                           const OatFile::OatClass* oat_class,
+                           const DexFile& dex_file, uint32_t dex_method_index,
+                           uint32_t method_index) SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
   // Method shouldn't have already been linked.
   DCHECK(method->GetEntryPointFromQuickCompiledCode() == nullptr);
   DCHECK(method->GetEntryPointFromPortableCompiledCode() == nullptr);
@@ -1810,8 +1817,8 @@ static void LinkCode(const Handle<mirror::ArtMethod>& method, const OatFile::Oat
     // For static methods excluding the class initializer, install the trampoline.
     // It will be replaced by the proper entry point by ClassLinker::FixupStaticTrampolines
     // after initializing class (see ClassLinker::InitializeClass method).
-    method->SetEntryPointFromQuickCompiledCode(GetQuickResolutionTrampoline(runtime->GetClassLinker()));
-    method->SetEntryPointFromPortableCompiledCode(GetPortableResolutionTrampoline(runtime->GetClassLinker()));
+    method->SetEntryPointFromQuickCompiledCode(GetQuickResolutionTrampoline());
+    method->SetEntryPointFromPortableCompiledCode(GetPortableResolutionTrampoline());
   } else if (enter_interpreter) {
     if (!method->IsNative()) {
       // Set entry point from compiled code if there's no code or in interpreter only mode.
@@ -1837,8 +1844,7 @@ static void LinkCode(const Handle<mirror::ArtMethod>& method, const OatFile::Oat
     if (enter_interpreter) {
       // We have a native method here without code. Then it should have either the GenericJni
       // trampoline as entrypoint (non-static), or the Resolution trampoline (static).
-      DCHECK(method->GetEntryPointFromQuickCompiledCode() ==
-          GetQuickResolutionTrampoline(runtime->GetClassLinker())
+      DCHECK(method->GetEntryPointFromQuickCompiledCode() == GetQuickResolutionTrampoline()
           || method->GetEntryPointFromQuickCompiledCode() == GetQuickGenericJniTrampoline());
     }
   }
@@ -2182,7 +2188,7 @@ mirror::Class* ClassLinker::InitializePrimitiveClass(mirror::Class* primitive_cl
   Thread* self = Thread::Current();
   StackHandleScope<1> hs(self);
   Handle<mirror::Class> h_class(hs.NewHandle(primitive_class));
-  ObjectLock<mirror::Class> lock(self, &h_class);
+  ObjectLock<mirror::Class> lock(self, h_class);
   primitive_class->SetAccessFlags(kAccPublic | kAccFinal | kAccAbstract);
   primitive_class->SetPrimitiveType(type);
   primitive_class->SetStatus(mirror::Class::kStatusInitialized, self);
@@ -2279,7 +2285,7 @@ mirror::Class* ClassLinker::CreateArrayClass(Thread* self, const char* descripto
     }
     new_class->SetComponentType(component_type.Get());
   }
-  ObjectLock<mirror::Class> lock(self, &new_class);  // Must hold lock on object when initializing.
+  ObjectLock<mirror::Class> lock(self, new_class);  // Must hold lock on object when initializing.
   DCHECK(new_class->GetComponentType() != NULL);
   mirror::Class* java_lang_Object = GetClassRoot(kJavaLangObject);
   new_class->SetSuperClass(java_lang_Object);
@@ -2554,7 +2560,7 @@ void ClassLinker::LookupClasses(const char* descriptor, std::vector<mirror::Clas
 void ClassLinker::VerifyClass(const Handle<mirror::Class>& klass) {
   // TODO: assert that the monitor on the Class is held
   Thread* self = Thread::Current();
-  ObjectLock<mirror::Class> lock(self, &klass);
+  ObjectLock<mirror::Class> lock(self, klass);
 
   // Don't attempt to re-verify if already sufficiently verified.
   if (klass->IsVerified() ||
@@ -2589,7 +2595,7 @@ void ClassLinker::VerifyClass(const Handle<mirror::Class>& klass) {
   Handle<mirror::Class> super(hs.NewHandle(klass->GetSuperClass()));
   if (super.Get() != NULL) {
     // Acquire lock to prevent races on verifying the super class.
-    ObjectLock<mirror::Class> lock(self, &super);
+    ObjectLock<mirror::Class> lock(self, super);
 
     if (!super->IsVerified() && !super->IsErroneous()) {
       VerifyClass(super);
@@ -2903,7 +2909,7 @@ mirror::Class* ClassLinker::CreateProxyClass(ScopedObjectAccess& soa, jstring na
   self->AssertNoPendingException();
 
   {
-    ObjectLock<mirror::Class> lock(self, &klass);  // Must hold lock on object when resolved.
+    ObjectLock<mirror::Class> lock(self, klass);  // Must hold lock on object when resolved.
     // Link the fields and virtual methods, creating vtable and iftables
     Handle<mirror::ObjectArray<mirror::Class> > h_interfaces(
         hs.NewHandle(soa.Decode<mirror::ObjectArray<mirror::Class>*>(interfaces)));
@@ -3121,7 +3127,7 @@ bool ClassLinker::InitializeClass(const Handle<mirror::Class>& klass, bool can_i
   Thread* self = Thread::Current();
   uint64_t t0;
   {
-    ObjectLock<mirror::Class> lock(self, &klass);
+    ObjectLock<mirror::Class> lock(self, klass);
 
     // Re-check under the lock in case another thread initialized ahead of us.
     if (klass->IsInitialized()) {
@@ -3198,7 +3204,7 @@ bool ClassLinker::InitializeClass(const Handle<mirror::Class>& klass, bool can_i
             << " that has unexpected status " << handle_scope_super->GetStatus()
             << "\nPending exception:\n"
             << (self->GetException(NULL) != NULL ? self->GetException(NULL)->Dump() : "");
-        ObjectLock<mirror::Class> lock(self, &klass);
+        ObjectLock<mirror::Class> lock(self, klass);
         // Initialization failed because the super-class is erroneous.
         klass->SetStatus(mirror::Class::kStatusError, self);
         return false;
@@ -3242,7 +3248,7 @@ bool ClassLinker::InitializeClass(const Handle<mirror::Class>& klass, bool can_i
 
   bool success = true;
   {
-    ObjectLock<mirror::Class> lock(self, &klass);
+    ObjectLock<mirror::Class> lock(self, klass);
 
     if (self->IsExceptionPending()) {
       WrapExceptionInInitializer();
