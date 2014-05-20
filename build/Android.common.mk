@@ -136,12 +136,12 @@ endif
 ART_DALVIK_CACHE_DIR := /data/dalvik-cache
 
 # directory used for gtests on device
-ART_BASE_NATIVETEST_DIR := /data/nativetest/art
-ART_BASE_NATIVETEST_OUT := $(TARGET_OUT_DATA_NATIVE_TESTS)/art
+ART_NATIVETEST_DIR := /data/nativetest/art
+ART_NATIVETEST_OUT := $(TARGET_OUT_DATA_NATIVE_TESTS)/art
 
-# directory used for tests on device
-ART_BASE_TEST_DIR := /data/art-test
-ART_BASE_TEST_OUT := $(TARGET_OUT_DATA)/art-test
+# directory used for oat tests on device
+ART_TEST_DIR := /data/art-test
+ART_TEST_OUT := $(TARGET_OUT_DATA)/art-test
 
 # Primary vs. secondary
 2ND_TARGET_ARCH := $(TARGET_2ND_ARCH)
@@ -157,26 +157,15 @@ ifdef TARGET_2ND_ARCH
     ART_PHONY_TEST_TARGET_SUFFIX := 64
     2ND_ART_PHONY_TEST_TARGET_SUFFIX := 32
     ART_TARGET_BINARY_SUFFIX := 64
+    ART_TARGET_ARCH_32 := $(TARGET_2ND_ARCH)
+    ART_TARGET_ARCH_64 := $(TARGET_ARCH)
   else
     # TODO: ???
     $(error Do not know what to do with this multi-target configuration!)
   endif
-  # Primary with primary suffix
-  ART_NATIVETEST_DIR := $(ART_BASE_NATIVETEST_DIR)$(art_test_primary_suffix)
-  ART_NATIVETEST_OUT := $(ART_BASE_NATIVETEST_OUT)$(art_test_primary_suffix)
-  ART_TEST_DIR := $(ART_BASE_TEST_DIR)$(art_test_primary_suffix)
-  ART_TEST_OUT := $(ART_BASE_TEST_OUT)$(art_test_primary_suffix)
-  # Secondary with 2ND_ prefix and secondary suffix
-  2ND_ART_NATIVETEST_DIR := $(ART_BASE_NATIVETEST_DIR)$(art_test_secondary_suffix)
-  2ND_ART_NATIVETEST_OUT := $(ART_BASE_NATIVETEST_OUT)$(art_test_secondary_suffix)
-  2ND_ART_TEST_DIR := $(ART_BASE_TEST_DIR)$(art_test_secondary_suffix)
-  2ND_ART_TEST_OUT := $(ART_BASE_TEST_OUT)$(art_test_secondary_suffix)
 else
-  ART_NATIVETEST_DIR := $(ART_BASE_NATIVETEST_DIR)
-  ART_NATIVETEST_OUT := $(ART_BASE_NATIVETEST_OUT)
-  ART_TEST_DIR := $(ART_BASE_TEST_DIR)
-  ART_TEST_OUT := $(ART_BASE_TEST_OUT)
-  # No secondary
+  ART_TARGET_ARCH_32 := $(TARGET_ARCH)
+  ART_TARGET_ARCH_64 :=
 endif
 
 ART_CPP_EXTENSION := .cc
@@ -256,9 +245,6 @@ else
   endif
 endif
 ART_TARGET_CFLAGS += $(ART_DEFAULT_GC_TYPE_CFLAGS)
-
-# TODO: remove when target no longer implies stlport.
-ART_TARGET_CFLAGS += -DART_WITH_STLPORT=1
 
 # DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES is set in ../build/core/dex_preopt.mk based on
 # the TARGET_CPU_VARIANT
@@ -400,5 +386,24 @@ $(2): $(2)$(ART_PHONY_TEST_TARGET_SUFFIX) $(2)$(2ND_ART_PHONY_TEST_TARGET_SUFFIX
   endif
 endef
 
+HOST_CORE_OAT := $(HOST_OUT_JAVA_LIBRARIES)/$(ART_HOST_ARCH)/core.oat
+TARGET_CORE_OAT := $(ART_TEST_DIR)/$(DEX2OAT_TARGET_ARCH)/core.oat
+ifdef TARGET_2ND_ARCH
+2ND_TARGET_CORE_OAT := $(2ND_ART_TEST_DIR)/$($(TARGET_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_ARCH)/core.oat
+endif
+
+HOST_CORE_OAT_OUT := $(HOST_OUT_JAVA_LIBRARIES)/$(ART_HOST_ARCH)/core.oat
+TARGET_CORE_OAT_OUT := $(ART_TEST_OUT)/$(DEX2OAT_TARGET_ARCH)/core.oat
+ifdef TARGET_2ND_ARCH
+2ND_TARGET_CORE_OAT_OUT := $(ART_TEST_OUT)/$($(TARGET_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_ARCH)/core.oat
+endif
+
+HOST_CORE_IMG_OUT := $(HOST_OUT_JAVA_LIBRARIES)/$(ART_HOST_ARCH)/core.art
+TARGET_CORE_IMG_OUT := $(ART_TEST_OUT)/$(DEX2OAT_TARGET_ARCH)/core.art
+ifdef TARGET_2ND_ARCH
+2ND_TARGET_CORE_IMG_OUT := $(ART_TEST_OUT)/$($(TARGET_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_ARCH)/core.art
+endif
+
+HOST_CORE_IMG_LOCATION := $(HOST_OUT_JAVA_LIBRARIES)/core.art
 
 endif # ANDROID_COMMON_MK

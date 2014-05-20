@@ -29,18 +29,6 @@ TARGET_CORE_DEX_LOCATIONS := $(foreach jar,$(TARGET_CORE_JARS),/$(DEXPREOPT_BOOT
 HOST_CORE_DEX_FILES   := $(foreach jar,$(HOST_CORE_JARS),  $(call intermediates-dir-for,JAVA_LIBRARIES,$(jar),t,COMMON)/javalib.jar)
 TARGET_CORE_DEX_FILES := $(foreach jar,$(TARGET_CORE_JARS),$(call intermediates-dir-for,JAVA_LIBRARIES,$(jar), ,COMMON)/javalib.jar)
 
-HOST_CORE_OAT := $(HOST_OUT_JAVA_LIBRARIES)/core.oat
-TARGET_CORE_OAT := $(ART_TEST_DIR)/core.oat
-2ND_TARGET_CORE_OAT := $(2ND_ART_TEST_DIR)/core.oat
-
-HOST_CORE_OAT_OUT := $(HOST_OUT_JAVA_LIBRARIES)/core.oat
-TARGET_CORE_OAT_OUT := $(ART_TEST_OUT)/core.oat
-2ND_TARGET_CORE_OAT_OUT := $(2ND_ART_TEST_OUT)/core.oat
-
-HOST_CORE_IMG_OUT := $(HOST_OUT_JAVA_LIBRARIES)/core.art
-TARGET_CORE_IMG_OUT := $(ART_TEST_OUT)/core.art
-2ND_TARGET_CORE_IMG_OUT := $(2ND_ART_TEST_OUT)/core.art
-
 TARGET_INSTRUCTION_SET_FEATURES := $(DEX2OAT_TARGET_INSTRUCTION_SET_FEATURES)
 
 # Use dex2oat debug version for better error reporting

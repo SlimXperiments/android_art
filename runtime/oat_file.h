@@ -37,10 +37,6 @@ class OatHeader;
 
 class OatFile {
  public:
-  // Returns an .odex file name next adjacent to the dex location.
-  // For example, for "/foo/bar/baz.jar", return "/foo/bar/baz.odex".
-  static std::string DexFilenameToOdexFilename(const std::string& location);
-
   // Open an oat file. Returns NULL on failure.  Requested base can
   // optionally be used to request where the file should be loaded.
   static OatFile* Open(const std::string& filename,
@@ -266,10 +262,10 @@ class OatFile {
   const byte* end_;
 
   // Backing memory map for oat file during when opened by ElfWriter during initial compilation.
-  UniquePtr<MemMap> mem_map_;
+  std::unique_ptr<MemMap> mem_map_;
 
   // Backing memory map for oat file during cross compilation.
-  UniquePtr<ElfFile> elf_file_;
+  std::unique_ptr<ElfFile> elf_file_;
 
   // dlopen handle during runtime.
   void* dlopen_handle_;

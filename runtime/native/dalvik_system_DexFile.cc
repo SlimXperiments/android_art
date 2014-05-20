@@ -115,7 +115,9 @@ static jlong DexFile_openDexFileNative(JNIEnv* env, jclass, jstring javaSourceNa
   if (outputName.c_str() == nullptr) {
     // FindOrCreateOatFileForDexLocation can tolerate a missing dex_location_checksum
     dex_file = linker->FindDexFileInOatFileFromDexLocation(sourceName.c_str(),
-                                                           dex_location_checksum_pointer, &error_msgs);
+                                                           dex_location_checksum_pointer,
+                                                           kRuntimeISA,
+                                                           &error_msgs);
   } else {
     // FindOrCreateOatFileForDexLocation requires the dex_location_checksum
     if (dex_location_checksum_pointer == NULL) {
@@ -198,7 +200,7 @@ static jclass DexFile_defineClassNative(JNIEnv* env, jclass, jstring javaName, j
 static jobjectArray DexFile_getClassNameList(JNIEnv* env, jclass, jlong cookie) {
   jobjectArray result = nullptr;
   const DexFile* dex_file = toDexFile(cookie, env);
-  if (dex_file == nullptr) {
+  if (dex_file != nullptr) {
     result = env->NewObjectArray(dex_file->NumClassDefs(), WellKnownClasses::java_lang_String,
                                  nullptr);
     if (result != nullptr) {
@@ -297,6 +299,52 @@ static jboolean IsDexOptNeededInternal(JNIEnv* env, const char* filename,
     }
   }
 
+  const InstructionSet target_instruction_set = GetInstructionSetFromString(instruction_set);
+
+  // Check if we have an odex file next to the dex file.
+  std::string odex_filename(DexFilenameToOdexFilename(filename, kRuntimeISA));
+  std::string error_msg;
+  std::unique_ptr<const OatFile> oat_file(OatFile::Open(odex_filename, odex_filename, NULL, false,
+                                                        &error_msg));
+  if (oat_file.get() == nullptr) {
+    if (kVerboseLogging) {
+      LOG(INFO) << "DexFile_isDexOptNeeded failed to open oat file '" << filename
+          << "': " << error_msg;
+    }
+    error_msg.clear();
+  } else {
+    const art::OatFile::OatDexFile* oat_dex_file = oat_file->GetOatDexFile(filename, NULL,
+                                                                           kReasonLogging);
+    if (oat_dex_file != nullptr) {
+      uint32_t location_checksum;
+      // If its not possible to read the classes.dex assume up-to-date as we won't be able to
+      // compile it anyway.
+      if (!DexFile::GetChecksum(filename, &location_checksum, &error_msg)) {
+        if (kVerboseLogging) {
+          LOG(INFO) << "DexFile_isDexOptNeeded ignoring precompiled stripped file: "
+              << filename << ": " << error_msg;
+        }
+        return JNI_FALSE;
+      }
+      if (ClassLinker::VerifyOatFileChecksums(oat_file.get(), filename, location_checksum,
+                                              target_instruction_set,
+                                              &error_msg)) {
+        if (kVerboseLogging) {
+          LOG(INFO) << "DexFile_isDexOptNeeded precompiled file " << odex_filename
+              << " has an up-to-date checksum compared to " << filename;
+        }
+        return JNI_FALSE;
+      } else {
+        if (kVerboseLogging) {
+          LOG(INFO) << "DexFile_isDexOptNeeded found precompiled file " << odex_filename
+              << " with an out-of-date checksum compared to " << filename
+              << ": " << error_msg;
+        }
+        error_msg.clear();
+      }
+    }
+  }
+
   // Check the profile file.  We need to rerun dex2oat if the profile has changed significantly
   // since the last time, or it's new.
   // If the 'defer' argument is true then this will be retried later.  In this case we
@@ -380,52 +428,6 @@ static jboolean IsDexOptNeededInternal(JNIEnv* env, const char* filename,
       }
       if (!defer) {
         CopyProfileFile(profile_file.c_str(), prev_profile_file.c_str());
-      }
-    }
-  }
-
-  const InstructionSet target_instruction_set = GetInstructionSetFromString(instruction_set);
-
-  // Check if we have an odex file next to the dex file.
-  std::string odex_filename(OatFile::DexFilenameToOdexFilename(filename));
-  std::string error_msg;
-  UniquePtr<const OatFile> oat_file(OatFile::Open(odex_filename, odex_filename, NULL, false,
-                                                  &error_msg));
-  if (oat_file.get() == nullptr) {
-    if (kVerboseLogging) {
-      LOG(INFO) << "DexFile_isDexOptNeeded failed to open oat file '" << filename
-          << "': " << error_msg;
-    }
-    error_msg.clear();
-  } else {
-    const art::OatFile::OatDexFile* oat_dex_file = oat_file->GetOatDexFile(filename, NULL,
-                                                                           kReasonLogging);
-    if (oat_dex_file != nullptr) {
-      uint32_t location_checksum;
-      // If its not possible to read the classes.dex assume up-to-date as we won't be able to
-      // compile it anyway.
-      if (!DexFile::GetChecksum(filename, &location_checksum, &error_msg)) {
-        if (kVerboseLogging) {
-          LOG(INFO) << "DexFile_isDexOptNeeded ignoring precompiled stripped file: "
-              << filename << ": " << error_msg;
-        }
-        return JNI_FALSE;
-      }
-      if (ClassLinker::VerifyOatFileChecksums(oat_file.get(), filename, location_checksum,
-                                              target_instruction_set,
-                                              &error_msg)) {
-        if (kVerboseLogging) {
-          LOG(INFO) << "DexFile_isDexOptNeeded precompiled file " << odex_filename
-              << " has an up-to-date checksum compared to " << filename;
-        }
-        return JNI_FALSE;
-      } else {
-        if (kVerboseLogging) {
-          LOG(INFO) << "DexFile_isDexOptNeeded found precompiled file " << odex_filename
-              << " with an out-of-date checksum compared to " << filename
-              << ": " << error_msg;
-        }
-        error_msg.clear();
       }
     }
   }

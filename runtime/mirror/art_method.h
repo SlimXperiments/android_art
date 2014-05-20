@@ -32,7 +32,7 @@ struct ConstructorMethodOffsets;
 union JValue;
 struct MethodClassOffsets;
 class MethodHelper;
-class ScopedObjectAccess;
+class ScopedObjectAccessAlreadyRunnable;
 class StringPiece;
 class ShadowFrame;
 
@@ -46,7 +46,8 @@ typedef void (EntryPointFromInterpreter)(Thread* self, MethodHelper& mh,
 // C++ mirror of java.lang.reflect.Method and java.lang.reflect.Constructor
 class MANAGED ArtMethod : public Object {
  public:
-  static ArtMethod* FromReflectedMethod(const ScopedObjectAccess& soa, jobject jlr_method)
+  static ArtMethod* FromReflectedMethod(const ScopedObjectAccessAlreadyRunnable& soa,
+                                        jobject jlr_method)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   Class* GetDeclaringClass() ALWAYS_INLINE SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
@@ -407,13 +408,13 @@ class MANAGED ArtMethod : public Object {
   HeapReference<Class> declaring_class_;
 
   // Short cuts to declaring_class_->dex_cache_ member for fast compiled code access.
-  HeapReference<ObjectArray<ArtMethod> > dex_cache_resolved_methods_;
+  HeapReference<ObjectArray<ArtMethod>> dex_cache_resolved_methods_;
 
   // Short cuts to declaring_class_->dex_cache_ member for fast compiled code access.
-  HeapReference<ObjectArray<Class> > dex_cache_resolved_types_;
+  HeapReference<ObjectArray<Class>> dex_cache_resolved_types_;
 
   // Short cuts to declaring_class_->dex_cache_ member for fast compiled code access.
-  HeapReference<ObjectArray<String> > dex_cache_strings_;
+  HeapReference<ObjectArray<String>> dex_cache_strings_;
 
   // Method dispatch from the interpreter invokes this pointer which may cause a bridge into
   // compiled code.

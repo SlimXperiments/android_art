@@ -33,17 +33,6 @@
 
 namespace art {
 
-std::string OatFile::DexFilenameToOdexFilename(const std::string& location) {
-  CHECK_GE(location.size(), 4U) << location;  // must be at least .123
-  size_t dot_index = location.size() - 3 - 1;  // 3=dex or zip or apk
-  CHECK_EQ('.', location[dot_index]) << location;
-  std::string odex_location(location);
-  odex_location.resize(dot_index + 1);
-  CHECK_EQ('.', odex_location[odex_location.size()-1]) << location << " " << odex_location;
-  odex_location += "odex";
-  return odex_location;
-}
-
 void OatFile::CheckLocation(const std::string& location) {
   CHECK(!location.empty());
 }
@@ -53,7 +42,7 @@ OatFile* OatFile::OpenMemory(std::vector<uint8_t>& oat_contents,
                              std::string* error_msg) {
   CHECK(!oat_contents.empty()) << location;
   CheckLocation(location);
-  UniquePtr<OatFile> oat_file(new OatFile(location));
+  std::unique_ptr<OatFile> oat_file(new OatFile(location));
   oat_file->begin_ = &oat_contents[0];
   oat_file->end_ = &oat_contents[oat_contents.size()];
   return oat_file->Setup(error_msg) ? oat_file.release() : nullptr;
@@ -82,7 +71,7 @@ OatFile* OatFile::Open(const std::string& filename,
   //
   // On host, dlopen is expected to fail when cross compiling, so fall back to OpenElfFile.
   // This won't work for portable runtime execution because it doesn't process relocations.
-  UniquePtr<File> file(OS::OpenFileForReading(filename.c_str()));
+  std::unique_ptr<File> file(OS::OpenFileForReading(filename.c_str()));
   if (file.get() == NULL) {
     *error_msg = StringPrintf("Failed to open oat filename for reading: %s", strerror(errno));
     return NULL;
@@ -99,7 +88,7 @@ OatFile* OatFile::OpenDlopen(const std::string& elf_filename,
                              const std::string& location,
                              byte* requested_base,
                              std::string* error_msg) {
-  UniquePtr<OatFile> oat_file(new OatFile(location));
+  std::unique_ptr<OatFile> oat_file(new OatFile(location));
   bool success = oat_file->Dlopen(elf_filename, requested_base, error_msg);
   if (!success) {
     return nullptr;
@@ -113,7 +102,7 @@ OatFile* OatFile::OpenElfFile(File* file,
                               bool writable,
                               bool executable,
                               std::string* error_msg) {
-  UniquePtr<OatFile> oat_file(new OatFile(location));
+  std::unique_ptr<OatFile> oat_file(new OatFile(location));
   bool success = oat_file->ElfFileOpen(file, requested_base, writable, executable, error_msg);
   if (!success) {
     CHECK(!error_msg->empty());

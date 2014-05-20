@@ -41,20 +41,18 @@ clean-oat: clean-oat-host clean-oat-target
 
 .PHONY: clean-oat-host
 clean-oat-host:
-	rm -f $(ART_NATIVETEST_OUT)/*.odex
-	rm -f $(ART_NATIVETEST_OUT)/*.oat
-	rm -f $(ART_NATIVETEST_OUT)/*.art
-	rm -f $(ART_TEST_OUT)/*.odex
-	rm -f $(ART_TEST_OUT)/*.oat
-	rm -f $(ART_TEST_OUT)/*.art
-	rm -f $(HOST_OUT_JAVA_LIBRARIES)/*.odex
-	rm -f $(HOST_OUT_JAVA_LIBRARIES)/*.oat
-	rm -f $(HOST_OUT_JAVA_LIBRARIES)/*.art
-	rm -f $(TARGET_OUT_JAVA_LIBRARIES)/*.odex
-	rm -f $(TARGET_OUT_JAVA_LIBRARIES)/*.oat
-	rm -f $(TARGET_OUT_JAVA_LIBRARIES)/*.art
-	rm -f $(DEXPREOPT_PRODUCT_DIR_FULL_PATH)/$(DEXPREOPT_BOOT_JAR_DIR)/*.oat
-	rm -f $(DEXPREOPT_PRODUCT_DIR_FULL_PATH)/$(DEXPREOPT_BOOT_JAR_DIR)/*.art
+	rm -rf $(ART_NATIVETEST_OUT)
+	rm -rf $(ART_TEST_OUT)
+	rm -f $(HOST_CORE_IMG_OUT)
+	rm -f $(HOST_CORE_OAT_OUT)
+	rm -f $(HOST_OUT_JAVA_LIBRARIES)/$(ART_HOST_ARCH)/*.odex
+	rm -f $(TARGET_CORE_IMG_OUT)
+	rm -f $(TARGET_CORE_OAT_OUT)
+ifdef TARGET_2ND_ARCH
+	rm -f $(2ND_TARGET_CORE_IMG_OUT)
+	rm -f $(2ND_TARGET_CORE_OAT_OUT)
+endif
+	rm -rf $(DEXPREOPT_PRODUCT_DIR_FULL_PATH)
 	rm -f $(TARGET_OUT_UNSTRIPPED)/system/framework/*.odex
 	rm -f $(TARGET_OUT_UNSTRIPPED)/system/framework/*.oat
 	rm -f $(TARGET_OUT_APPS)/*.odex
@@ -70,24 +68,15 @@ endif
 .PHONY: clean-oat-target
 clean-oat-target:
 	adb remount
-	adb shell rm -f $(ART_NATIVETEST_DIR)/*.odex
-	adb shell rm -f $(ART_NATIVETEST_DIR)/*.oat
-	adb shell rm -f $(ART_NATIVETEST_DIR)/*.art
-	adb shell rm -f $(ART_TEST_DIR)/*.odex
-	adb shell rm -f $(ART_TEST_DIR)/*.oat
-	adb shell rm -f $(ART_TEST_DIR)/*.art
-ifdef TARGET_2ND_ARCH
-	adb shell rm -f $(2ND_ART_NATIVETEST_DIR)/*.odex
-	adb shell rm -f $(2ND_ART_NATIVETEST_DIR)/*.oat
-	adb shell rm -f $(2ND_ART_NATIVETEST_DIR)/*.art
-	adb shell rm -f $(2ND_ART_TEST_DIR)/*.odex
-	adb shell rm -f $(2ND_ART_TEST_DIR)/*.oat
-	adb shell rm -f $(2ND_ART_TEST_DIR)/*.art
-endif
+	adb shell rm -rf $(ART_NATIVETEST_DIR)
+	adb shell rm -rf $(ART_TEST_DIR)
 	adb shell rm -rf $(ART_DALVIK_CACHE_DIR)/*
-	adb shell rm -f $(DEXPREOPT_BOOT_JAR_DIR)/*.oat
-	adb shell rm -f $(DEXPREOPT_BOOT_JAR_DIR)/*.art
-	adb shell rm -f system/app/*.odex
+	adb shell rm -rf $(DEXPREOPT_BOOT_JAR_DIR)/$(DEX2OAT_TARGET_ARCH)
+	adb shell rm -rf system/app/$(DEX2OAT_TARGET_ARCH)
+ifdef TARGET_2ND_ARCH
+	adb shell rm -rf $(DEXPREOPT_BOOT_JAR_DIR)/$($(TARGET_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_ARCH)
+	adb shell rm -rf system/app/$($(TARGET_2ND_ARCH_VAR_PREFIX)DEX2OAT_TARGET_ARCH)
+endif
 	adb shell rm -rf data/run-test/test-*/dalvik-cache/*
 
 ifneq ($(art_dont_bother),true)
@@ -241,10 +230,9 @@ test-art-target$(1): test-art-target-gtest$(1) test-art-target-oat$(1) test-art-
 endef
 $(eval $(call call-art-multi-target-rule,declare-test-art-target,test-art-target))
 
-
 define declare-test-art-target-dependencies
 .PHONY: test-art-target-dependencies$(1)
-test-art-target-dependencies$(1): $(ART_TARGET_TEST_DEPENDENCIES$(1)) $(ART_TEST_OUT)/libarttest.so
+test-art-target-dependencies$(1): $(ART_TARGET_TEST_DEPENDENCIES$(1)) $(ART_TARGET_LIBARTTEST_$(1))
 endef
 $(eval $(call call-art-multi-target-rule,declare-test-art-target-dependencies,test-art-target-dependencies))
 
@@ -380,7 +368,7 @@ build-art-target: $(ART_TARGET_EXECUTABLES) $(ART_TARGET_GTEST_EXECUTABLES) $(TA
 ########################################################################
 # "m art-host" for just building the files needed to run the art script
 .PHONY: art-host
-art-host:   $(HOST_OUT_EXECUTABLES)/art $(HOST_OUT)/bin/dalvikvm $(HOST_OUT)/lib/libart.so $(HOST_OUT)/bin/dex2oat $(HOST_OUT_JAVA_LIBRARIES)/core.art $(HOST_OUT)/lib/libjavacore.so
+art-host:   $(HOST_OUT_EXECUTABLES)/art $(HOST_OUT)/bin/dalvikvm $(HOST_OUT)/lib/libart.so $(HOST_OUT)/bin/dex2oat $(HOST_CORE_IMG_OUT) $(HOST_OUT)/lib/libjavacore.so
 
 .PHONY: art-host-debug
 art-host-debug:   art-host $(HOST_OUT)/lib/libartd.so $(HOST_OUT)/bin/dex2oatd
@@ -404,7 +392,7 @@ dump-oat-core: dump-oat-core-host dump-oat-core-target
 .PHONY: dump-oat-core-host
 ifeq ($(ART_BUILD_HOST),true)
 dump-oat-core-host: $(HOST_CORE_IMG_OUT) $(OATDUMP)
-	$(OATDUMP) --image=$(HOST_CORE_IMG_OUT) --output=$(ART_DUMP_OAT_PATH)/core.host.oatdump.txt
+	$(OATDUMP) --image=$(HOST_CORE_IMG_LOCATION) --output=$(ART_DUMP_OAT_PATH)/core.host.oatdump.txt
 	@echo Output in $(ART_DUMP_OAT_PATH)/core.host.oatdump.txt
 endif
 

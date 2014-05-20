@@ -22,10 +22,9 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-
 #include <unistd.h>
+#include <memory>
 
-#include "UniquePtrCompat.h"
 #include "base/stl_util.h"
 #include "base/unix_file/fd_file.h"
 #include "dex_file-inl.h"
@@ -105,7 +104,7 @@ void GetThreadStack(pthread_t thread, void** stack_base, size_t* stack_size) {
 }
 
 bool ReadFileToString(const std::string& file_name, std::string* result) {
-  UniquePtr<File> file(new File);
+  std::unique_ptr<File> file(new File);
   if (!file->Open(file_name, O_RDONLY)) {
     return false;
   }
@@ -1045,7 +1044,7 @@ void DumpNativeStack(std::ostream& os, pid_t tid, const char* prefix,
   if (current_method != nullptr) {
     Locks::mutator_lock_->AssertSharedHeld(Thread::Current());
   }
-  UniquePtr<Backtrace> backtrace(Backtrace::Create(BACKTRACE_CURRENT_PROCESS, tid));
+  std::unique_ptr<Backtrace> backtrace(Backtrace::Create(BACKTRACE_CURRENT_PROCESS, tid));
   if (!backtrace->Unwind(0)) {
     os << prefix << "(backtrace::Unwind failed for thread " << tid << ")\n";
     return;
@@ -1202,6 +1201,37 @@ std::string GetDalvikCacheFilenameOrDie(const char* location, const char* cache_
   }
   std::replace(cache_file.begin(), cache_file.end(), '/', '@');
   return StringPrintf("%s/%s", cache_location, cache_file.c_str());
+}
+
+static void InsertIsaDirectory(const InstructionSet isa, std::string* filename) {
+  // in = /foo/bar/baz
+  // out = /foo/bar/<isa>/baz
+  size_t pos = filename->rfind('/');
+  CHECK_NE(pos, std::string::npos) << *filename << " " << isa;
+  filename->insert(pos, "/", 1);
+  filename->insert(pos + 1, GetInstructionSetString(isa));
+}
+
+std::string GetSystemImageFilename(const char* location, const InstructionSet isa) {
+  // location = /system/framework/boot.art
+  // filename = /system/framework/<isa>/boot.art
+  std::string filename(location);
+  InsertIsaDirectory(isa, &filename);
+  return filename;
+}
+
+std::string DexFilenameToOdexFilename(const std::string& location, const InstructionSet isa) {
+  // location = /foo/bar/baz.jar
+  // odex_location = /foo/bar/<isa>/baz.odex
+  CHECK_GE(location.size(), 4U) << location;  // must be at least .123
+  std::string odex_location(location);
+  InsertIsaDirectory(isa, &odex_location);
+  size_t dot_index = odex_location.size() - 3 - 1;  // 3=dex or zip or apk
+  CHECK_EQ('.', odex_location[dot_index]) << location;
+  odex_location.resize(dot_index + 1);
+  CHECK_EQ('.', odex_location[odex_location.size()-1]) << location << " " << odex_location;
+  odex_location += "odex";
+  return odex_location;
 }
 
 bool IsZipMagic(uint32_t magic) {

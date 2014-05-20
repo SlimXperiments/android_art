@@ -25,7 +25,7 @@
 namespace art {
 
 ParsedOptions* ParsedOptions::Create(const Runtime::Options& options, bool ignore_unrecognized) {
-  UniquePtr<ParsedOptions> parsed(new ParsedOptions());
+  std::unique_ptr<ParsedOptions> parsed(new ParsedOptions());
   if (parsed->Parse(options, ignore_unrecognized)) {
     return parsed.release();
   }
@@ -534,7 +534,7 @@ bool ParsedOptions::Parse(const Runtime::Options& options, bool ignore_unrecogni
     } else if (option == "-Xprofile:dualclock") {
       Trace::SetDefaultClockSource(kProfilerClockSourceDual);
     } else if (StartsWith(option, "-Xprofile:")) {
-      if (!ParseStringAfterChar(option, ';', &profile_output_filename_)) {
+      if (!ParseStringAfterChar(option, ':', &profile_output_filename_)) {
         return false;
       }
       profile_ = true;

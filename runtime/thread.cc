@@ -171,7 +171,7 @@ void* Thread::CreateCallback(void* arg) {
   return nullptr;
 }
 
-Thread* Thread::FromManagedThread(const ScopedObjectAccessUnchecked& soa,
+Thread* Thread::FromManagedThread(const ScopedObjectAccessAlreadyRunnable& soa,
                                   mirror::Object* thread_peer) {
   mirror::ArtField* f = soa.DecodeField(WellKnownClasses::java_lang_Thread_nativePeer);
   Thread* result = reinterpret_cast<Thread*>(static_cast<uintptr_t>(f->GetLong(thread_peer)));
@@ -186,7 +186,8 @@ Thread* Thread::FromManagedThread(const ScopedObjectAccessUnchecked& soa,
   return result;
 }
 
-Thread* Thread::FromManagedThread(const ScopedObjectAccessUnchecked& soa, jobject java_thread) {
+Thread* Thread::FromManagedThread(const ScopedObjectAccessAlreadyRunnable& soa,
+                                  jobject java_thread) {
   return FromManagedThread(soa, soa.Decode<mirror::Object*>(java_thread));
 }
 
@@ -556,7 +557,7 @@ void Thread::Dump(std::ostream& os) const {
   DumpStack(os);
 }
 
-mirror::String* Thread::GetThreadName(const ScopedObjectAccessUnchecked& soa) const {
+mirror::String* Thread::GetThreadName(const ScopedObjectAccessAlreadyRunnable& soa) const {
   mirror::ArtField* f = soa.DecodeField(WellKnownClasses::java_lang_Thread_name);
   return (tlsPtr_.opeer != nullptr) ? reinterpret_cast<mirror::String*>(f->GetObject(tlsPtr_.opeer)) : nullptr;
 }
@@ -932,7 +933,7 @@ static bool ShouldShowNativeStack(const Thread* thread)
 }
 
 void Thread::DumpJavaStack(std::ostream& os) const {
-  UniquePtr<Context> context(Context::Create());
+  std::unique_ptr<Context> context(Context::Create());
   StackDumpVisitor dumper(os, const_cast<Thread*>(this), context.get(),
                           !tls32_.throwing_OutOfMemoryError);
   dumper.WalkStack();
@@ -1432,7 +1433,7 @@ class BuildInternalStackTraceVisitor : public StackVisitor {
 };
 
 template<bool kTransactionActive>
-jobject Thread::CreateInternalStackTrace(const ScopedObjectAccessUnchecked& soa) const {
+jobject Thread::CreateInternalStackTrace(const ScopedObjectAccessAlreadyRunnable& soa) const {
   // Compute depth of stack
   CountStackDepthVisitor count_visitor(const_cast<Thread*>(this));
   count_visitor.WalkStack();
@@ -1455,11 +1456,14 @@ jobject Thread::CreateInternalStackTrace(const ScopedObjectAccessUnchecked& soa)
   }
   return soa.AddLocalReference<jobjectArray>(trace);
 }
-template jobject Thread::CreateInternalStackTrace<false>(const ScopedObjectAccessUnchecked& soa) const;
-template jobject Thread::CreateInternalStackTrace<true>(const ScopedObjectAccessUnchecked& soa) const;
+template jobject Thread::CreateInternalStackTrace<false>(
+    const ScopedObjectAccessAlreadyRunnable& soa) const;
+template jobject Thread::CreateInternalStackTrace<true>(
+    const ScopedObjectAccessAlreadyRunnable& soa) const;
 
-jobjectArray Thread::InternalStackTraceToStackTraceElementArray(const ScopedObjectAccess& soa,
-    jobject internal, jobjectArray output_array, int* stack_depth) {
+jobjectArray Thread::InternalStackTraceToStackTraceElementArray(
+    const ScopedObjectAccessAlreadyRunnable& soa, jobject internal, jobjectArray output_array,
+    int* stack_depth) {
   // Decode the internal stack trace into the depth, method trace and PC trace
   int32_t depth = soa.Decode<mirror::ObjectArray<mirror::Object>*>(internal)->GetLength() - 1;
 
@@ -2144,7 +2148,7 @@ static void VerifyRoot(mirror::Object** root, void* /*arg*/, uint32_t /*thread_i
 }
 
 void Thread::VerifyStackImpl() {
-  UniquePtr<Context> context(Context::Create());
+  std::unique_ptr<Context> context(Context::Create());
   RootCallbackVisitor visitorToCallback(VerifyRoot, Runtime::Current()->GetHeap(), GetThreadId());
   ReferenceMapVisitor<RootCallbackVisitor> mapper(this, context.get(), visitorToCallback);
   mapper.WalkStack();

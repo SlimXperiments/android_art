@@ -46,7 +46,7 @@ namespace mirror {
 
 class InternTable;
 template<class T> class ObjectLock;
-class ScopedObjectAccess;
+class ScopedObjectAccessAlreadyRunnable;
 template<class T> class Handle;
 
 typedef bool (ClassVisitor)(mirror::Class* c, void* arg);
@@ -280,6 +280,7 @@ class ClassLinker {
   // does not match the OatFile.
   const DexFile* FindDexFileInOatFileFromDexLocation(const char* location,
                                                      const uint32_t* const location_checksum,
+                                                     InstructionSet isa,
                                                      std::vector<std::string>* error_msgs)
       LOCKS_EXCLUDED(dex_lock_, Locks::mutator_lock_);
 
@@ -288,7 +289,7 @@ class ClassLinker {
   static bool VerifyOatFileChecksums(const OatFile* oat_file,
                                      const char* dex_location,
                                      uint32_t dex_location_checksum,
-                                     const InstructionSet instruction_set,
+                                     InstructionSet instruction_set,
                                      std::string* error_msg);
 
   // TODO: replace this with multiple methods that allocate the correct managed type.
@@ -325,8 +326,9 @@ class ClassLinker {
   void ResolveMethodExceptionHandlerTypes(const DexFile& dex_file, mirror::ArtMethod* klass)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
-  mirror::Class* CreateProxyClass(ScopedObjectAccess& soa, jstring name, jobjectArray interfaces,
-                                  jobject loader, jobjectArray methods, jobjectArray throws)
+  mirror::Class* CreateProxyClass(ScopedObjectAccessAlreadyRunnable& soa, jstring name,
+                                  jobjectArray interfaces, jobject loader, jobjectArray methods,
+                                  jobjectArray throws)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
   std::string GetDescriptorForProxy(mirror::Class* proxy_class)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
@@ -485,7 +487,7 @@ class ClassLinker {
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   bool LinkClass(Thread* self, const Handle<mirror::Class>& klass,
-                 const Handle<mirror::ObjectArray<mirror::Class> >& interfaces)
+                 const Handle<mirror::ObjectArray<mirror::Class>>& interfaces)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   bool LinkSuperClass(const Handle<mirror::Class>& klass)
@@ -495,14 +497,14 @@ class ClassLinker {
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   bool LinkMethods(const Handle<mirror::Class>& klass,
-                   const Handle<mirror::ObjectArray<mirror::Class> >& interfaces)
+                   const Handle<mirror::ObjectArray<mirror::Class>>& interfaces)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   bool LinkVirtualMethods(const Handle<mirror::Class>& klass)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   bool LinkInterfaceMethods(const Handle<mirror::Class>& klass,
-                            const Handle<mirror::ObjectArray<mirror::Class> >& interfaces)
+                            const Handle<mirror::ObjectArray<mirror::Class>>& interfaces)
       SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
   bool LinkStaticFields(const Handle<mirror::Class>& klass)
@@ -569,7 +571,7 @@ class ClassLinker {
   // Class::descriptor_ and Class::class_loader_.
   typedef std::multimap<size_t, mirror::Class*> Table;
   Table class_table_ GUARDED_BY(Locks::classlinker_classes_lock_);
-  std::vector<std::pair<size_t, mirror::Class*> > new_class_roots_;
+  std::vector<std::pair<size_t, mirror::Class*>> new_class_roots_;
 
   // Do we need to search dex caches to find image classes?
   bool dex_cache_image_class_lookup_required_;

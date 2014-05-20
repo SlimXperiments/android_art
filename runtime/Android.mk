@@ -353,8 +353,6 @@ define build-libart
     LOCAL_IS_HOST_MODULE := true
   endif
 
-  include art/build/Android.libcxx.mk
-
   GENERATED_SRC_DIR := $$(call local-generated-sources-dir)
   ENUM_OPERATOR_OUT_CC_FILES := $$(patsubst %.h,%_operator_out.cc,$$(LIBART_ENUM_OPERATOR_OUT_HEADER_FILES))
   ENUM_OPERATOR_OUT_GEN := $$(addprefix $$(GENERATED_SRC_DIR)/,$$(ENUM_OPERATOR_OUT_CC_FILES))
@@ -398,7 +396,12 @@ $$(ENUM_OPERATOR_OUT_GEN): $$(GENERATED_SRC_DIR)/%_operator_out.cc : $(LOCAL_PAT
   endif
   LOCAL_C_INCLUDES += $(ART_C_INCLUDES)
   LOCAL_SHARED_LIBRARIES += liblog libnativehelper
-  LOCAL_SHARED_LIBRARIES += libbacktrace # native stack trace support
+  ifeq ($$(art_target_or_host),target)
+    include external/libcxx/libcxx.mk
+    LOCAL_SHARED_LIBRARIES += libbacktrace_libc++
+  else
+    LOCAL_SHARED_LIBRARIES += libbacktrace
+  endif
   ifeq ($$(art_target_or_host),target)
     LOCAL_SHARED_LIBRARIES += libcutils libdl libselinux libutils
     LOCAL_STATIC_LIBRARIES := libziparchive libz
