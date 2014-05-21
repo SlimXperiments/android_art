@@ -188,14 +188,14 @@ test-art-host-oat: test-art-host-oat-default test-art-host-oat-interpreter
 define declare-test-art-host-run-test
 .PHONY: test-art-host-run-test-default-$(1)
 test-art-host-run-test-default-$(1): test-art-host-dependencies $(DX) $(HOST_OUT_EXECUTABLES)/jasmin
-	DX=$(abspath $(DX)) JASMIN=$(abspath $(HOST_OUT_EXECUTABLES)/jasmin) art/test/run-test $(DALVIKVM_FLAGS) --host $(1)
+	DX=$(abspath $(DX)) JASMIN=$(abspath $(HOST_OUT_EXECUTABLES)/jasmin) art/test/run-test $(addprefix --runtime-option ,$(DALVIKVM_FLAGS)) --host $(1)
 	@echo test-art-host-run-test-default-$(1) PASSED
 
 TEST_ART_HOST_RUN_TEST_DEFAULT_TARGETS += test-art-host-run-test-default-$(1)
 
 .PHONY: test-art-host-run-test-interpreter-$(1)
 test-art-host-run-test-interpreter-$(1): test-art-host-dependencies $(DX) $(HOST_OUT_EXECUTABLES)/jasmin
-	DX=$(abspath $(DX)) JASMIN=$(abspath $(HOST_OUT_EXECUTABLES)/jasmin) art/test/run-test $(DALVIKVM_FLAGS) --host --interpreter $(1)
+	DX=$(abspath $(DX)) JASMIN=$(abspath $(HOST_OUT_EXECUTABLES)/jasmin) art/test/run-test $(addprefix --runtime-option ,$(DALVIKVM_FLAGS)) --host --interpreter $(1)
 	@echo test-art-host-run-test-interpreter-$(1) PASSED
 
 TEST_ART_HOST_RUN_TEST_INTERPRETER_TARGETS += test-art-host-run-test-interpreter-$(1)
@@ -267,7 +267,7 @@ ifeq ($($(2)ART_PHONY_TEST_TARGET_SUFFIX),64)
 endif
 .PHONY: test-art-target-run-test-$(1)$($(2)ART_PHONY_TEST_TARGET_SUFFIX)
 test-art-target-run-test-$(1)$($(2)ART_PHONY_TEST_TARGET_SUFFIX): test-art-target-sync $(DX) $(HOST_OUT_EXECUTABLES)/jasmin
-	DX=$(abspath $(DX)) JASMIN=$(abspath $(HOST_OUT_EXECUTABLES)/jasmin) art/test/run-test $(DALVIKVM_FLAGS) $$($(2)run_test_$(1)) $(1)
+	DX=$(abspath $(DX)) JASMIN=$(abspath $(HOST_OUT_EXECUTABLES)/jasmin) art/test/run-test $(addprefix --runtime-option ,$(DALVIKVM_FLAGS)) $$($(2)run_test_$(1)) $(1)
 	@echo test-art-target-run-test-$(1)$($(2)ART_PHONY_TEST_TARGET_SUFFIX) PASSED
 endef
 
@@ -454,6 +454,16 @@ use-art-full:
 	adb shell setprop dalvik.vm.dex2oat-flags ""
 	adb shell setprop dalvik.vm.image-dex2oat-flags ""
 	adb shell setprop persist.sys.dalvik.vm.lib.1 libart.so
+	adb shell start
+
+.PHONY: use-artd-full
+use-artd-full:
+	adb root && sleep 3
+	adb shell stop
+	adb shell rm -rf $(ART_DALVIK_CACHE_DIR)/*
+	adb shell setprop dalvik.vm.dex2oat-flags ""
+	adb shell setprop dalvik.vm.image-dex2oat-flags ""
+	adb shell setprop persist.sys.dalvik.vm.lib.1 libartd.so
 	adb shell start
 
 .PHONY: use-art-smart
