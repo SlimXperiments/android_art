@@ -422,6 +422,10 @@ const ArmEncodingMap Arm64Mir2Lir::EncodingMap[kA64Last] = {
                  kFmtRegR, 4, 0, kFmtRegR, 9, 5, kFmtRegR, 20, 16,
                  kFmtUnused, -1, -1, IS_TERTIARY_OP | REG_DEF0_USE12,
                  "mul", "!0r, !1r, !2r", kFixupNone),
+    ENCODING_MAP(WIDE(kA64Msub4rrrr), SF_VARIANTS(0x1b008000),
+                 kFmtRegR, 4, 0, kFmtRegR, 9, 5, kFmtRegR, 14, 10,
+                 kFmtRegR, 20, 16, IS_QUAD_OP | REG_DEF0_USE123,
+                 "msub", "!0r, !1r, !3r, !2r", kFixupNone),
     ENCODING_MAP(WIDE(kA64Neg3rro), SF_VARIANTS(0x4b0003e0),
                  kFmtRegR, 4, 0, kFmtRegR, 20, 16, kFmtShift, -1, -1,
                  kFmtUnused, -1, -1, IS_TERTIARY_OP | REG_DEF0_USE1,
@@ -666,7 +670,7 @@ uint8_t* Arm64Mir2Lir::EncodeLIRs(uint8_t* write_pos, LIR* lir) {
                   expected = "core register";
                 } else if (want_size_match && (reg.Is64Bit() != want_64_bit)) {
                   expected = (want_64_bit) ? "x-register" : "w-register";
-                } else if (reg.GetRegNum() == 31 && is_zero == want_zero) {
+                } else if (reg.GetRegNum() == 31 && is_zero != want_zero) {
                   expected = (want_zero) ? "zero-register" : "sp-register";
                 }
               }

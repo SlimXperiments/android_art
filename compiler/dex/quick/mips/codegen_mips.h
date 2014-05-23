@@ -54,8 +54,6 @@ class MipsMir2Lir FINAL : public Mir2Lir {
     void MarkGCCard(RegStorage val_reg, RegStorage tgt_addr_reg);
 
     // Required for target - register utilities.
-    RegStorage AllocTypedTemp(bool fp_hint, int reg_class);
-    RegStorage AllocTypedTempWide(bool fp_hint, int reg_class);
     RegStorage TargetReg(SpecialTargetRegister reg);
     RegStorage GetArgMappingToPhysicalReg(int arg_num);
     RegLocation GetReturnAlt();
@@ -120,6 +118,7 @@ class MipsMir2Lir FINAL : public Mir2Lir {
     bool GenInlinedSqrt(CallInfo* info);
     bool GenInlinedPeek(CallInfo* info, OpSize size);
     bool GenInlinedPoke(CallInfo* info, OpSize size);
+    void GenNotLong(RegLocation rl_dest, RegLocation rl_src);
     void GenNegLong(RegLocation rl_dest, RegLocation rl_src);
     void GenOrLong(Instruction::Code opcode, RegLocation rl_dest, RegLocation rl_src1,
                    RegLocation rl_src2);
@@ -127,6 +126,8 @@ class MipsMir2Lir FINAL : public Mir2Lir {
                     RegLocation rl_src2);
     void GenXorLong(Instruction::Code opcode, RegLocation rl_dest, RegLocation rl_src1,
                     RegLocation rl_src2);
+    void GenDivRemLong(Instruction::Code, RegLocation rl_dest, RegLocation rl_src1,
+                       RegLocation rl_src2, bool is_div);
     RegLocation GenDivRem(RegLocation rl_dest, RegStorage reg_lo, RegStorage reg_hi, bool is_div);
     RegLocation GenDivRemLit(RegLocation rl_dest, RegStorage reg_lo, int lit, bool is_div);
     void GenCmpLong(RegLocation rl_dest, RegLocation rl_src1, RegLocation rl_src2);

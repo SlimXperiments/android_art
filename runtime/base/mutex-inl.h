@@ -132,9 +132,21 @@ static inline void CheckUnattachedThread(LockLevel level) NO_THREAD_SAFETY_ANALY
   // TODO: tighten this check.
   if (kDebugLocking) {
     Runtime* runtime = Runtime::Current();
-    CHECK(runtime == NULL || !runtime->IsStarted() || runtime->IsShuttingDownLocked() ||
-          level == kDefaultMutexLevel  || level == kRuntimeShutdownLock ||
-          level == kThreadListLock || level == kLoggingLock || level == kAbortLock);
+    CHECK(runtime == nullptr || !runtime->IsStarted() || runtime->IsShuttingDownLocked() ||
+          // Used during thread creation to avoid races with runtime shutdown. Thread::Current not
+          // yet established.
+          level == kRuntimeShutdownLock ||
+          // Thread Ids are allocated/released before threads are established.
+          level == kAllocatedThreadIdsLock ||
+          // Thread LDT's are initialized without Thread::Current established.
+          level == kModifyLdtLock ||
+          // Threads are unregistered while holding the thread list lock, during this process they
+          // no longer exist and so we expect an unlock with no self.
+          level == kThreadListLock ||
+          // Ignore logging which may or may not have set up thread data structures.
+          level == kLoggingLock ||
+          // Avoid recursive death.
+          level == kAbortLock);
   }
 }
 
@@ -221,7 +233,7 @@ inline void ReaderWriterMutex::SharedUnlock(Thread* self) {
       // Reduce state by 1.
       done = android_atomic_release_cas(cur_state, cur_state - 1, &state_) == 0;
       if (done && (cur_state - 1) == 0) {  // cas may fail due to noise?
-        if (num_pending_writers_ > 0 || num_pending_readers_ > 0) {
+        if (num_pending_writers_.LoadRelaxed() > 0 || num_pending_readers_ > 0) {
           // Wake any exclusive waiters as there are now no readers.
           futex(&state_, FUTEX_WAKE, -1, NULL, NULL, 0);
         }

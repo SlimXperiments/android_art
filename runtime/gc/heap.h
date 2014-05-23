@@ -372,7 +372,7 @@ class Heap {
 
   // Returns the number of bytes currently allocated.
   size_t GetBytesAllocated() const {
-    return num_bytes_allocated_;
+    return num_bytes_allocated_.LoadSequentiallyConsistent();
   }
 
   // Returns the number of objects currently allocated.
@@ -408,7 +408,7 @@ class Heap {
 
   // Implements java.lang.Runtime.freeMemory.
   size_t GetFreeMemory() const {
-    return GetTotalMemory() - num_bytes_allocated_;
+    return GetTotalMemory() - num_bytes_allocated_.LoadSequentiallyConsistent();
   }
 
   // get the space that corresponds to an object's address. Current implementation searches all
@@ -777,6 +777,9 @@ class Heap {
   // If we ignore the max footprint it lets the heap grow until it hits the heap capacity, this is
   // useful for benchmarking since it reduces time spent in GC to a low %.
   const bool ignore_max_footprint_;
+
+  // Lock which guards zygote space creation.
+  Mutex zygote_creation_lock_;
 
   // If we have a zygote space.
   bool have_zygote_space_;

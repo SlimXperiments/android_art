@@ -21,7 +21,7 @@
 #include "dataflow_iterator-inl.h"
 #include "leb128.h"
 #include "mirror/object.h"
-#include "pass_driver.h"
+#include "pass_driver_me.h"
 #include "runtime.h"
 #include "base/logging.h"
 #include "base/timing_logger.h"
@@ -75,6 +75,7 @@ static uint32_t kCompilerDebugFlags = 0 |     // Enable debug/testing modes
   // (1 << kDebugShowSummaryMemoryUsage) |
   // (1 << kDebugShowFilterStats) |
   // (1 << kDebugTimings) |
+  // (1 << kDebugCodegenDump) |
   0;
 
 CompilationUnit::CompilationUnit(ArenaPool* pool)
@@ -135,22 +136,22 @@ void CompilationUnit::EndTiming() {
 // TODO: Remove this when we are able to compile everything.
 int arm64_support_list[] = {
     Instruction::NOP,
-    // Instruction::MOVE,
-    // Instruction::MOVE_FROM16,
-    // Instruction::MOVE_16,
-    // Instruction::MOVE_WIDE,
-    // Instruction::MOVE_WIDE_FROM16,
-    // Instruction::MOVE_WIDE_16,
-    // Instruction::MOVE_OBJECT,
-    // Instruction::MOVE_OBJECT_FROM16,
-    // Instruction::MOVE_OBJECT_16,
+    Instruction::MOVE,
+    Instruction::MOVE_FROM16,
+    Instruction::MOVE_16,
+    Instruction::MOVE_WIDE,
+    Instruction::MOVE_WIDE_FROM16,
+    Instruction::MOVE_WIDE_16,
+    Instruction::MOVE_OBJECT,
+    Instruction::MOVE_OBJECT_FROM16,
+    Instruction::MOVE_OBJECT_16,
     // Instruction::MOVE_RESULT,
     // Instruction::MOVE_RESULT_WIDE,
     // Instruction::MOVE_RESULT_OBJECT,
     Instruction::MOVE_EXCEPTION,
     Instruction::RETURN_VOID,
-    // Instruction::RETURN,
-    // Instruction::RETURN_WIDE,
+    Instruction::RETURN,
+    Instruction::RETURN_WIDE,
     // Instruction::RETURN_OBJECT,
     // Instruction::CONST_4,
     // Instruction::CONST_16,
@@ -183,7 +184,7 @@ int arm64_support_list[] = {
     // Instruction::CMPG_FLOAT,
     // Instruction::CMPL_DOUBLE,
     // Instruction::CMPG_DOUBLE,
-    // Instruction::CMP_LONG,
+    Instruction::CMP_LONG,
     // Instruction::IF_EQ,
     // Instruction::IF_NE,
     // Instruction::IF_LT,
@@ -257,16 +258,16 @@ int arm64_support_list[] = {
     // Instruction::INVOKE_INTERFACE_RANGE,
     // Instruction::UNUSED_79,
     // Instruction::UNUSED_7A,
-    // Instruction::NEG_INT,
-    // Instruction::NOT_INT,
-    // Instruction::NEG_LONG,
-    // Instruction::NOT_LONG,
+    Instruction::NEG_INT,
+    Instruction::NOT_INT,
+    Instruction::NEG_LONG,
+    Instruction::NOT_LONG,
     // Instruction::NEG_FLOAT,
     // Instruction::NEG_DOUBLE,
-    // Instruction::INT_TO_LONG,
+    Instruction::INT_TO_LONG,
     // Instruction::INT_TO_FLOAT,
     // Instruction::INT_TO_DOUBLE,
-    // Instruction::LONG_TO_INT,
+    Instruction::LONG_TO_INT,
     // Instruction::LONG_TO_FLOAT,
     // Instruction::LONG_TO_DOUBLE,
     // Instruction::FLOAT_TO_INT,
@@ -275,31 +276,31 @@ int arm64_support_list[] = {
     // Instruction::DOUBLE_TO_INT,
     // Instruction::DOUBLE_TO_LONG,
     // Instruction::DOUBLE_TO_FLOAT,
-    // Instruction::INT_TO_BYTE,
-    // Instruction::INT_TO_CHAR,
-    // Instruction::INT_TO_SHORT,
-    // Instruction::ADD_INT,
-    // Instruction::SUB_INT,
-    // Instruction::MUL_INT,
-    // Instruction::DIV_INT,
-    // Instruction::REM_INT,
-    // Instruction::AND_INT,
-    // Instruction::OR_INT,
-    // Instruction::XOR_INT,
-    // Instruction::SHL_INT,
-    // Instruction::SHR_INT,
-    // Instruction::USHR_INT,
-    // Instruction::ADD_LONG,
-    // Instruction::SUB_LONG,
-    // Instruction::MUL_LONG,
-    // Instruction::DIV_LONG,
-    // Instruction::REM_LONG,
-    // Instruction::AND_LONG,
-    // Instruction::OR_LONG,
-    // Instruction::XOR_LONG,
-    // Instruction::SHL_LONG,
-    // Instruction::SHR_LONG,
-    // Instruction::USHR_LONG,
+    Instruction::INT_TO_BYTE,
+    Instruction::INT_TO_CHAR,
+    Instruction::INT_TO_SHORT,
+    Instruction::ADD_INT,
+    Instruction::SUB_INT,
+    Instruction::MUL_INT,
+    Instruction::DIV_INT,
+    Instruction::REM_INT,
+    Instruction::AND_INT,
+    Instruction::OR_INT,
+    Instruction::XOR_INT,
+    Instruction::SHL_INT,
+    Instruction::SHR_INT,
+    Instruction::USHR_INT,
+    Instruction::ADD_LONG,
+    Instruction::SUB_LONG,
+    Instruction::MUL_LONG,
+    Instruction::DIV_LONG,
+    Instruction::REM_LONG,
+    Instruction::AND_LONG,
+    Instruction::OR_LONG,
+    Instruction::XOR_LONG,
+    Instruction::SHL_LONG,
+    Instruction::SHR_LONG,
+    Instruction::USHR_LONG,
     // Instruction::ADD_FLOAT,
     // Instruction::SUB_FLOAT,
     // Instruction::MUL_FLOAT,
@@ -310,28 +311,28 @@ int arm64_support_list[] = {
     // Instruction::MUL_DOUBLE,
     // Instruction::DIV_DOUBLE,
     // Instruction::REM_DOUBLE,
-    // Instruction::ADD_INT_2ADDR,
-    // Instruction::SUB_INT_2ADDR,
-    // Instruction::MUL_INT_2ADDR,
-    // Instruction::DIV_INT_2ADDR,
-    // Instruction::REM_INT_2ADDR,
-    // Instruction::AND_INT_2ADDR,
-    // Instruction::OR_INT_2ADDR,
-    // Instruction::XOR_INT_2ADDR,
-    // Instruction::SHL_INT_2ADDR,
-    // Instruction::SHR_INT_2ADDR,
-    // Instruction::USHR_INT_2ADDR,
-    // Instruction::ADD_LONG_2ADDR,
-    // Instruction::SUB_LONG_2ADDR,
-    // Instruction::MUL_LONG_2ADDR,
-    // Instruction::DIV_LONG_2ADDR,
-    // Instruction::REM_LONG_2ADDR,
-    // Instruction::AND_LONG_2ADDR,
-    // Instruction::OR_LONG_2ADDR,
-    // Instruction::XOR_LONG_2ADDR,
-    // Instruction::SHL_LONG_2ADDR,
-    // Instruction::SHR_LONG_2ADDR,
-    // Instruction::USHR_LONG_2ADDR,
+    Instruction::ADD_INT_2ADDR,
+    Instruction::SUB_INT_2ADDR,
+    Instruction::MUL_INT_2ADDR,
+    Instruction::DIV_INT_2ADDR,
+    Instruction::REM_INT_2ADDR,
+    Instruction::AND_INT_2ADDR,
+    Instruction::OR_INT_2ADDR,
+    Instruction::XOR_INT_2ADDR,
+    Instruction::SHL_INT_2ADDR,
+    Instruction::SHR_INT_2ADDR,
+    Instruction::USHR_INT_2ADDR,
+    Instruction::ADD_LONG_2ADDR,
+    Instruction::SUB_LONG_2ADDR,
+    Instruction::MUL_LONG_2ADDR,
+    Instruction::DIV_LONG_2ADDR,
+    Instruction::REM_LONG_2ADDR,
+    Instruction::AND_LONG_2ADDR,
+    Instruction::OR_LONG_2ADDR,
+    Instruction::XOR_LONG_2ADDR,
+    Instruction::SHL_LONG_2ADDR,
+    Instruction::SHR_LONG_2ADDR,
+    Instruction::USHR_LONG_2ADDR,
     // Instruction::ADD_FLOAT_2ADDR,
     // Instruction::SUB_FLOAT_2ADDR,
     // Instruction::MUL_FLOAT_2ADDR,
@@ -342,25 +343,25 @@ int arm64_support_list[] = {
     // Instruction::MUL_DOUBLE_2ADDR,
     // Instruction::DIV_DOUBLE_2ADDR,
     // Instruction::REM_DOUBLE_2ADDR,
-    // Instruction::ADD_INT_LIT16,
-    // Instruction::RSUB_INT,
-    // Instruction::MUL_INT_LIT16,
-    // Instruction::DIV_INT_LIT16,
-    // Instruction::REM_INT_LIT16,
-    // Instruction::AND_INT_LIT16,
-    // Instruction::OR_INT_LIT16,
-    // Instruction::XOR_INT_LIT16,
+    Instruction::ADD_INT_LIT16,
+    Instruction::RSUB_INT,
+    Instruction::MUL_INT_LIT16,
+    Instruction::DIV_INT_LIT16,
+    Instruction::REM_INT_LIT16,
+    Instruction::AND_INT_LIT16,
+    Instruction::OR_INT_LIT16,
+    Instruction::XOR_INT_LIT16,
     Instruction::ADD_INT_LIT8,
-    // Instruction::RSUB_INT_LIT8,
-    // Instruction::MUL_INT_LIT8,
-    // Instruction::DIV_INT_LIT8,
-    // Instruction::REM_INT_LIT8,
-    // Instruction::AND_INT_LIT8,
-    // Instruction::OR_INT_LIT8,
-    // Instruction::XOR_INT_LIT8,
-    // Instruction::SHL_INT_LIT8,
-    // Instruction::SHR_INT_LIT8,
-    // Instruction::USHR_INT_LIT8,
+    Instruction::RSUB_INT_LIT8,
+    Instruction::MUL_INT_LIT8,
+    Instruction::DIV_INT_LIT8,
+    Instruction::REM_INT_LIT8,
+    Instruction::AND_INT_LIT8,
+    Instruction::OR_INT_LIT8,
+    Instruction::XOR_INT_LIT8,
+    Instruction::SHL_INT_LIT8,
+    Instruction::SHR_INT_LIT8,
+    Instruction::USHR_INT_LIT8,
     // Instruction::IGET_QUICK,
     // Instruction::IGET_WIDE_QUICK,
     // Instruction::IGET_OBJECT_QUICK,
@@ -402,7 +403,7 @@ int arm64_support_list[] = {
     // kMirOpNop,
     // kMirOpNullCheck,
     // kMirOpRangeCheck,
-    // kMirOpDivZeroCheck,
+    kMirOpDivZeroCheck,
     kMirOpCheck,
     // kMirOpCheckPart2,
     // kMirOpSelect,
@@ -698,7 +699,7 @@ int x86_64_support_list[] = {
 // V : void
 // (ARM64) Current calling conversion only support 32bit softfp
 //         which has problems with long, float, double
-constexpr char arm64_supported_types[] = "ZBSCILV";
+constexpr char arm64_supported_types[] = "ZBSCILVJ";
 // (x84_64) We still have troubles with compiling longs/doubles/floats
 constexpr char x86_64_supported_types[] = "ZBSCILV";
 
@@ -852,6 +853,10 @@ static CompiledMethod* CompileMethod(CompilerDriver& driver,
     }
   }
 
+  if (cu.verbose) {
+    cu.enable_debug |= (1 << kDebugCodegenDump);
+  }
+
   /*
    * TODO: rework handling of optimization and debug flags.  Should we split out
    * MIR and backend flags?  Need command-line setting as well.
@@ -874,9 +879,11 @@ static CompiledMethod* CompileMethod(CompilerDriver& driver,
         (1 << kPromoteCompilerTemps));
   }
 
-  if (cu.instruction_set == kArm64) {
+  if (cu.instruction_set == kArm64 || cu.instruction_set == kX86_64) {
     // TODO(Arm64): enable optimizations once backend is mature enough.
+    // TODO(X86_64): enable optimizations once backend is mature enough.
     cu.disable_opt = ~(uint32_t)0;
+    cu.enable_debug |= (1 << kDebugCodegenDump);
   }
 
   cu.StartTimingSplit("BuildMIRGraph");
@@ -918,7 +925,7 @@ static CompiledMethod* CompileMethod(CompilerDriver& driver,
   }
 
   /* Create the pass driver and launch it */
-  PassDriver pass_driver(&cu);
+  PassDriverME pass_driver(&cu);
   pass_driver.Launch();
 
   if (cu.enable_debug & (1 << kDebugDumpCheckStats)) {

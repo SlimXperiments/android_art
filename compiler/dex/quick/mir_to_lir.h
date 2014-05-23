@@ -411,10 +411,15 @@ class Mir2Lir : public Backend {
 
     class RegisterPool {
      public:
-      RegisterPool(Mir2Lir* m2l, ArenaAllocator* arena, const std::vector<RegStorage>& core_regs,
-                   const std::vector<RegStorage>& sp_regs, const std::vector<RegStorage>& dp_regs,
+      RegisterPool(Mir2Lir* m2l, ArenaAllocator* arena,
+                   const std::vector<RegStorage>& core_regs,
+                   const std::vector<RegStorage>& core64_regs,
+                   const std::vector<RegStorage>& sp_regs,
+                   const std::vector<RegStorage>& dp_regs,
                    const std::vector<RegStorage>& reserved_regs,
+                   const std::vector<RegStorage>& reserved64_regs,
                    const std::vector<RegStorage>& core_temps,
+                   const std::vector<RegStorage>& core64_temps,
                    const std::vector<RegStorage>& sp_temps,
                    const std::vector<RegStorage>& dp_temps);
       ~RegisterPool() {}
@@ -428,6 +433,8 @@ class Mir2Lir : public Backend {
       }
       GrowableArray<RegisterInfo*> core_regs_;
       int next_core_reg_;
+      GrowableArray<RegisterInfo*> core64_regs_;
+      int next_core64_reg_;
       GrowableArray<RegisterInfo*> sp_regs_;    // Single precision float.
       int next_sp_reg_;
       GrowableArray<RegisterInfo*> dp_regs_;    // Double precision float.
@@ -610,6 +617,7 @@ class Mir2Lir : public Backend {
     LIR* NewLIR5(int opcode, int dest, int src1, int src2, int info1, int info2);
     LIR* ScanLiteralPool(LIR* data_target, int value, unsigned int delta);
     LIR* ScanLiteralPoolWide(LIR* data_target, int val_lo, int val_hi);
+    LIR* ScanLiteralPoolMethod(LIR* data_target, const MethodReference& method);
     LIR* AddWordData(LIR* *constant_list_p, int value);
     LIR* AddWideData(LIR* *constant_list_p, int val_lo, int val_hi);
     void ProcessSwitchTables();
@@ -673,8 +681,11 @@ class Mir2Lir : public Backend {
     RegStorage AllocTempBody(GrowableArray<RegisterInfo*> &regs, int* next_temp, bool required);
     virtual RegStorage AllocFreeTemp();
     virtual RegStorage AllocTemp();
+    virtual RegStorage AllocTempWide();
     virtual RegStorage AllocTempSingle();
     virtual RegStorage AllocTempDouble();
+    virtual RegStorage AllocTypedTemp(bool fp_hint, int reg_class);
+    virtual RegStorage AllocTypedTempWide(bool fp_hint, int reg_class);
     void FlushReg(RegStorage reg);
     void FlushRegWide(RegStorage reg);
     RegStorage AllocLiveReg(int s_reg, int reg_class, bool wide);
@@ -764,7 +775,7 @@ class Mir2Lir : public Backend {
                              RegLocation rl_src2, LIR* taken, LIR* fall_through);
     void GenCompareZeroAndBranch(Instruction::Code opcode, RegLocation rl_src,
                                  LIR* taken, LIR* fall_through);
-    void GenIntToLong(RegLocation rl_dest, RegLocation rl_src);
+    virtual void GenIntToLong(RegLocation rl_dest, RegLocation rl_src);
     void GenIntNarrowing(Instruction::Code opcode, RegLocation rl_dest,
                          RegLocation rl_src);
     void GenNewArray(uint32_t type_idx, RegLocation rl_dest,
@@ -789,7 +800,7 @@ class Mir2Lir : public Backend {
     void GenCheckCast(uint32_t insn_idx, uint32_t type_idx, RegLocation rl_src);
     void GenLong3Addr(OpKind first_op, OpKind second_op, RegLocation rl_dest,
                       RegLocation rl_src1, RegLocation rl_src2);
-    void GenShiftOpLong(Instruction::Code opcode, RegLocation rl_dest,
+    virtual void GenShiftOpLong(Instruction::Code opcode, RegLocation rl_dest,
                         RegLocation rl_src1, RegLocation rl_shift);
     void GenArithOpIntLit(Instruction::Code opcode, RegLocation rl_dest,
                           RegLocation rl_src, int lit);
@@ -1088,8 +1099,6 @@ class Mir2Lir : public Backend {
     virtual void MarkGCCard(RegStorage val_reg, RegStorage tgt_addr_reg) = 0;
 
     // Required for target - register utilities.
-    virtual RegStorage AllocTypedTemp(bool fp_hint, int reg_class) = 0;
-    virtual RegStorage AllocTypedTempWide(bool fp_hint, int reg_class) = 0;
     virtual RegStorage TargetReg(SpecialTargetRegister reg) = 0;
     virtual RegStorage GetArgMappingToPhysicalReg(int arg_num) = 0;
     virtual RegLocation GetReturnAlt() = 0;
@@ -1161,6 +1170,7 @@ class Mir2Lir : public Backend {
     virtual bool GenInlinedSqrt(CallInfo* info) = 0;
     virtual bool GenInlinedPeek(CallInfo* info, OpSize size) = 0;
     virtual bool GenInlinedPoke(CallInfo* info, OpSize size) = 0;
+    virtual void GenNotLong(RegLocation rl_dest, RegLocation rl_src) = 0;
     virtual void GenNegLong(RegLocation rl_dest, RegLocation rl_src) = 0;
     virtual void GenOrLong(Instruction::Code, RegLocation rl_dest, RegLocation rl_src1,
                            RegLocation rl_src2) = 0;
@@ -1168,6 +1178,8 @@ class Mir2Lir : public Backend {
                             RegLocation rl_src2) = 0;
     virtual void GenXorLong(Instruction::Code, RegLocation rl_dest, RegLocation rl_src1,
                             RegLocation rl_src2) = 0;
+    virtual void GenDivRemLong(Instruction::Code, RegLocation rl_dest, RegLocation rl_src1,
+                            RegLocation rl_src2, bool is_div) = 0;
     virtual RegLocation GenDivRem(RegLocation rl_dest, RegStorage reg_lo, RegStorage reg_hi,
                                   bool is_div) = 0;
     virtual RegLocation GenDivRemLit(RegLocation rl_dest, RegStorage reg_lo, int lit,

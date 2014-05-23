@@ -98,6 +98,9 @@ include $(art_build_path)/Android.oat.mk
 ART_HOST_DEPENDENCIES := $(ART_HOST_EXECUTABLES) $(HOST_OUT_JAVA_LIBRARIES)/core-libart-hostdex.jar
 ART_HOST_DEPENDENCIES += $(HOST_OUT_SHARED_LIBRARIES)/libjavacore$(ART_HOST_SHLIB_EXTENSION)
 ART_TARGET_DEPENDENCIES := $(ART_TARGET_EXECUTABLES) $(TARGET_OUT_JAVA_LIBRARIES)/core-libart.jar $(TARGET_OUT_SHARED_LIBRARIES)/libjavacore.so
+ifdef TARGET_2ND_ARCH
+ART_TARGET_DEPENDENCIES += $(2ND_TARGET_OUT_SHARED_LIBRARIES)/libjavacore.so
+endif
 
 ########################################################################
 # test targets
@@ -399,14 +402,14 @@ endif
 .PHONY: dump-oat-core-target
 ifeq ($(ART_BUILD_TARGET),true)
 dump-oat-core-target: $(TARGET_CORE_IMG_OUT) $(OATDUMP)
-	$(OATDUMP) --image=$(TARGET_CORE_IMG_OUT) --output=$(ART_DUMP_OAT_PATH)/core.target.oatdump.txt
+	$(OATDUMP) --image=$(TARGET_CORE_IMG_LOCATION) --output=$(ART_DUMP_OAT_PATH)/core.target.oatdump.txt --instruction-set=$(TARGET_ARCH)
 	@echo Output in $(ART_DUMP_OAT_PATH)/core.target.oatdump.txt
 endif
 
 .PHONY: dump-oat-boot
 ifeq ($(ART_BUILD_TARGET_NDEBUG),true)
-dump-oat-boot: $(DEFAULT_DEX_PREOPT_BUILT_IMAGE) $(OATDUMP)
-	$(OATDUMP) --image=$(DEFAULT_DEX_PREOPT_BUILT_IMAGE) --output=$(ART_DUMP_OAT_PATH)/boot.oatdump.txt
+dump-oat-boot: $(DEFAULT_DEX_PREOPT_BUILT_IMAGE_FILENAME) $(OATDUMP)
+	$(OATDUMP) --image=$(DEFAULT_DEX_PREOPT_BUILT_IMAGE_LOCATION) --output=$(ART_DUMP_OAT_PATH)/boot.oatdump.txt --instruction-set=$(TARGET_ARCH)
 	@echo Output in $(ART_DUMP_OAT_PATH)/boot.oatdump.txt
 endif
 

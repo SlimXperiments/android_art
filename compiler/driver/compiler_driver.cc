@@ -1152,28 +1152,22 @@ void CompilerDriver::GetCodeAndMethodForDirectCall(InvokeType* type, InvokeType 
       *type = sharp_type;
     }
   } else {
-    if (compiling_boot) {
+    bool method_in_image = compiling_boot ||
+        Runtime::Current()->GetHeap()->FindSpaceFromObject(method, false)->IsImageSpace();
+    if (method_in_image) {
+      CHECK(!method->IsAbstract());
       *type = sharp_type;
-      *direct_method = -1;
-      *direct_code = -1;
+      *direct_method = compiling_boot ? -1 : reinterpret_cast<uintptr_t>(method);
+      *direct_code = compiling_boot ? -1 : compiler_->GetEntryPointOf(method);
+      target_method->dex_file = method->GetDeclaringClass()->GetDexCache()->GetDexFile();
+      target_method->dex_method_index = method->GetDexMethodIndex();
+    } else if (!must_use_direct_pointers) {
+      // Set the code and rely on the dex cache for the method.
+      *type = sharp_type;
+      *direct_code = compiler_->GetEntryPointOf(method);
     } else {
-      bool method_in_image =
-          Runtime::Current()->GetHeap()->FindSpaceFromObject(method, false)->IsImageSpace();
-      if (method_in_image) {
-        CHECK(!method->IsAbstract());
-        *type = sharp_type;
-        *direct_method = reinterpret_cast<uintptr_t>(method);
-        *direct_code = compiler_->GetEntryPointOf(method);
-        target_method->dex_file = method->GetDeclaringClass()->GetDexCache()->GetDexFile();
-        target_method->dex_method_index = method->GetDexMethodIndex();
-      } else if (!must_use_direct_pointers) {
-        // Set the code and rely on the dex cache for the method.
-        *type = sharp_type;
-        *direct_code = compiler_->GetEntryPointOf(method);
-      } else {
-        // Direct pointers were required but none were available.
-        VLOG(compiler) << "Dex cache devirtualization failed for: " << PrettyMethod(method);
-      }
+      // Direct pointers were required but none were available.
+      VLOG(compiler) << "Dex cache devirtualization failed for: " << PrettyMethod(method);
     }
   }
 }
@@ -1369,7 +1363,7 @@ class ParallelCompilationManager {
     self->AssertNoPendingException();
     CHECK_GT(work_units, 0U);
 
-    index_ = begin;
+    index_.StoreRelaxed(begin);
     for (size_t i = 0; i < work_units; ++i) {
       thread_pool_->AddTask(self, new ForAllClosure(this, end, callback));
     }
@@ -1384,7 +1378,7 @@ class ParallelCompilationManager {
   }
 
   size_t NextIndex() {
-    return index_.FetchAndAdd(1);
+    return index_.FetchAndAddSequentiallyConsistent(1);
   }
 
  private:
