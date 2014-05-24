@@ -266,6 +266,56 @@ struct MIR {
 
     explicit DecodedInstruction():vA(0), vB(0), vB_wide(0), vC(0), opcode(Instruction::NOP) {
     }
+
+    /*
+     * Given a decoded instruction representing a const bytecode, it updates
+     * the out arguments with proper values as dictated by the constant bytecode.
+     */
+    bool GetConstant(int64_t* ptr_value, bool* wide) const;
+
+    bool IsStore() const {
+      return ((Instruction::FlagsOf(opcode) & Instruction::kStore) == Instruction::kStore);
+    }
+
+    bool IsLoad() const {
+      return ((Instruction::FlagsOf(opcode) & Instruction::kLoad) == Instruction::kLoad);
+    }
+
+    bool IsConditionalBranch() const {
+      return (Instruction::FlagsOf(opcode) == (Instruction::kContinue | Instruction::kBranch));
+    }
+
+    /**
+     * @brief Is the register C component of the decoded instruction a constant?
+     */
+    bool IsCFieldOrConstant() const {
+      return ((Instruction::FlagsOf(opcode) & Instruction::kRegCFieldOrConstant) == Instruction::kRegCFieldOrConstant);
+    }
+
+    /**
+     * @brief Is the register C component of the decoded instruction a constant?
+     */
+    bool IsBFieldOrConstant() const {
+      return ((Instruction::FlagsOf(opcode) & Instruction::kRegBFieldOrConstant) == Instruction::kRegBFieldOrConstant);
+    }
+
+    bool IsCast() const {
+      return ((Instruction::FlagsOf(opcode) & Instruction::kCast) == Instruction::kCast);
+    }
+
+    /**
+     * @brief Does the instruction clobber memory?
+     * @details Clobber means that the instruction changes the memory not in a punctual way.
+     *          Therefore any supposition on memory aliasing or memory contents should be disregarded
+     *            when crossing such an instruction.
+     */
+    bool Clobbers() const {
+      return ((Instruction::FlagsOf(opcode) & Instruction::kClobber) == Instruction::kClobber);
+    }
+
+    bool IsLinear() const {
+      return (Instruction::FlagsOf(opcode) & (Instruction::kAdd | Instruction::kSubtract)) != 0;
+    }
   } dalvikInsn;
 
   NarrowDexOffset offset;         // Offset of the instruction in code units.
@@ -339,10 +389,49 @@ struct BasicBlock {
   GrowableArray<SuccessorBlockInfo*>* successor_blocks;
 
   void AppendMIR(MIR* mir);
+  void AppendMIRList(MIR* first_list_mir, MIR* last_list_mir);
+  void AppendMIRList(const std::vector<MIR*>& insns);
   void PrependMIR(MIR* mir);
+  void PrependMIRList(MIR* first_list_mir, MIR* last_list_mir);
+  void PrependMIRList(const std::vector<MIR*>& to_add);
   void InsertMIRAfter(MIR* current_mir, MIR* new_mir);
-  void InsertMIRBefore(MIR* current_mir, MIR* new_mir);
+  void InsertMIRListAfter(MIR* insert_after, MIR* first_list_mir, MIR* last_list_mir);
   MIR* FindPreviousMIR(MIR* mir);
+  void InsertMIRBefore(MIR* insert_before, MIR* list);
+  void InsertMIRListBefore(MIR* insert_before, MIR* first_list_mir, MIR* last_list_mir);
+  bool RemoveMIR(MIR* mir);
+  bool RemoveMIRList(MIR* first_list_mir, MIR* last_list_mir);
+
+  BasicBlock* Copy(CompilationUnit* c_unit);
+  BasicBlock* Copy(MIRGraph* mir_graph);
+
+  /**
+   * @brief Reset the optimization_flags field of each MIR.
+   */
+  void ResetOptimizationFlags(uint16_t reset_flags);
+
+  /**
+   * @brief Hide the BasicBlock.
+   * @details Set it to kDalvikByteCode, set hidden to true, remove all MIRs,
+   *          remove itself from any predecessor edges, remove itself from any
+   *          child's predecessor growable array.
+   */
+  void Hide(CompilationUnit* c_unit);
+
+  /**
+   * @brief Is ssa_reg the last SSA definition of that VR in the block?
+   */
+  bool IsSSALiveOut(const CompilationUnit* c_unit, int ssa_reg);
+
+  /**
+   * @brief Replace the edge going to old_bb to now go towards new_bb.
+   */
+  bool ReplaceChild(BasicBlockId old_bb, BasicBlockId new_bb);
+
+  /**
+   * @brief Update the predecessor growable array from old_pred to new_pred.
+   */
+  void UpdatePredecessor(BasicBlockId old_pred, BasicBlockId new_pred);
 
   /**
    * @brief Used to obtain the next MIR that follows unconditionally.
@@ -353,8 +442,12 @@ struct BasicBlock {
    * @return Returns the following MIR if one can be found.
    */
   MIR* GetNextUnconditionalMir(MIRGraph* mir_graph, MIR* current);
-  bool RemoveMIR(MIR* mir);
   bool IsExceptionBlock() const;
+
+  static void* operator new(size_t size, ArenaAllocator* arena) {
+    return arena->Alloc(sizeof(BasicBlock), kArenaAllocBB);
+  }
+  static void operator delete(void* p) {}  // Nop.
 };
 
 /*
@@ -871,6 +964,7 @@ class MIRGraph {
   BasicBlock* NextDominatedBlock(BasicBlock* bb);
   bool LayoutBlocks(BasicBlock* bb);
   void ComputeTopologicalSortOrder();
+  BasicBlock* CreateNewBB(BBType block_type);
 
   bool InlineCallsGate();
   void InlineCallsStart();
@@ -890,7 +984,7 @@ class MIRGraph {
   /**
    * @brief Perform the initial preparation for the SSA Transformation.
    */
-  void InitializeSSATransformation();
+  void SSATransformationStart();
 
   /**
    * @brief Insert a the operands for the Phi nodes.
@@ -898,6 +992,11 @@ class MIRGraph {
    * @return true
    */
   bool InsertPhiNodeOperands(BasicBlock* bb);
+
+  /**
+   * @brief Perform the cleanup after the SSA Transformation.
+   */
+  void SSATransformationEnd();
 
   /**
    * @brief Perform constant propagation on a BasicBlock.
@@ -1012,7 +1111,6 @@ class MIRGraph {
   GrowableArray<BasicBlockId>* topological_order_;
   int* i_dom_list_;
   ArenaBitVector** def_block_matrix_;    // num_dalvik_register x num_blocks.
-  ArenaBitVector* temp_dalvik_register_v_;
   std::unique_ptr<ScopedArenaAllocator> temp_scoped_alloc_;
   uint16_t* temp_insn_data_;
   uint32_t temp_bit_vector_size_;

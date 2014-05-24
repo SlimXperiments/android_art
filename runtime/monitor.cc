@@ -637,7 +637,7 @@ void Monitor::Inflate(Thread* self, Thread* owner, mirror::Object* obj, int32_t 
   }
 }
 
-void Monitor::InflateThinLocked(Thread* self, Handle<mirror::Object>& obj, LockWord lock_word,
+void Monitor::InflateThinLocked(Thread* self, Handle<mirror::Object> obj, LockWord lock_word,
                                 uint32_t hash_code) {
   DCHECK_EQ(lock_word.GetState(), LockWord::kThinLocked);
   uint32_t owner_thread_id = lock_word.ThinLockOwner();
@@ -983,7 +983,7 @@ void Monitor::VisitLocks(StackVisitor* stack_visitor, void (*callback)(mirror::O
   // Ask the verifier for the dex pcs of all the monitor-enter instructions corresponding to
   // the locks held in this stack frame.
   std::vector<uint32_t> monitor_enter_dex_pcs;
-  verifier::MethodVerifier::FindLocksAtDexPc(m, stack_visitor->GetDexPc(), monitor_enter_dex_pcs);
+  verifier::MethodVerifier::FindLocksAtDexPc(m, stack_visitor->GetDexPc(), &monitor_enter_dex_pcs);
   if (monitor_enter_dex_pcs.empty()) {
     return;
   }
