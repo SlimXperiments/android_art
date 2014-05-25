@@ -117,41 +117,56 @@ enum X86ResourceEncodingPos {
 // FIXME: for 64-bit, perhaps add an X86_64NativeRegisterPool enum?
 enum X86NativeRegisterPool {
   r0             = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 0,
+  r0q            = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 0,
   rAX            = r0,
   r1             = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 1,
+  r1q            = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 1,
   rCX            = r1,
   r2             = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 2,
+  r2q            = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 2,
   rDX            = r2,
   r3             = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 3,
+  r3q            = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 3,
   rBX            = r3,
   r4sp_32        = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 4,
   rX86_SP_32     = r4sp_32,
   r4sp_64        = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 4,
   rX86_SP_64     = r4sp_64,
   r5             = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 5,
+  r5q            = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 5,
   rBP            = r5,
   r5sib_no_base  = r5,
   r6             = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 6,
+  r6q            = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 6,
   rSI            = r6,
   r7             = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 7,
+  r7q            = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 7,
   rDI            = r7,
 #ifndef TARGET_REX_SUPPORT
   // fake return address register for core spill mask.
   rRET           = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 8,
 #else
   r8             = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 8,
+  r8q            = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 8,
   r9             = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 9,
+  r9q            = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 9,
   r10            = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 10,
+  r10q           = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 10,
   r11            = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 11,
+  r11q           = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 11,
   r12            = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 12,
+  r12q           = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 12,
   r13            = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 13,
+  r13q           = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 13,
   r14            = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 14,
+  r14q           = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 14,
   r15            = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 15,
+  r15q           = RegStorage::k64BitSolo | RegStorage::kCoreRegister | 15,
   // fake return address register for core spill mask.
   rRET           = RegStorage::k32BitSolo | RegStorage::kCoreRegister | 16,
 #endif
 
-  // xmm registers, single precision view
+  // xmm registers, single precision view.
   fr0  = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 0,
   fr1  = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 1,
   fr2  = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 2,
@@ -161,7 +176,7 @@ enum X86NativeRegisterPool {
   fr6  = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 6,
   fr7  = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 7,
 
-  // xmm registers, double precision alises
+  // xmm registers, double precision aliases.
   dr0  = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 0,
   dr1  = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 1,
   dr2  = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 2,
@@ -171,37 +186,62 @@ enum X86NativeRegisterPool {
   dr6  = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 6,
   dr7  = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 7,
 
-  // xmm registers, quad precision alises
-  qr0  = RegStorage::k128BitSolo | RegStorage::kFloatingPoint | 0,
-  qr1  = RegStorage::k128BitSolo | RegStorage::kFloatingPoint | 1,
-  qr2  = RegStorage::k128BitSolo | RegStorage::kFloatingPoint | 2,
-  qr3  = RegStorage::k128BitSolo | RegStorage::kFloatingPoint | 3,
-  qr4  = RegStorage::k128BitSolo | RegStorage::kFloatingPoint | 4,
-  qr5  = RegStorage::k128BitSolo | RegStorage::kFloatingPoint | 5,
-  qr6  = RegStorage::k128BitSolo | RegStorage::kFloatingPoint | 6,
-  qr7  = RegStorage::k128BitSolo | RegStorage::kFloatingPoint | 7,
+  // xmm registers aliases.
+  xr0  = RegStorage::k128BitSolo | 0,
+  xr1  = RegStorage::k128BitSolo | 1,
+  xr2  = RegStorage::k128BitSolo | 2,
+  xr3  = RegStorage::k128BitSolo | 3,
+  xr4  = RegStorage::k128BitSolo | 4,
+  xr5  = RegStorage::k128BitSolo | 5,
+  xr6  = RegStorage::k128BitSolo | 6,
+  xr7  = RegStorage::k128BitSolo | 7,
 
   // TODO: as needed, add 256, 512 and 1024-bit xmm views.
 };
 
 constexpr RegStorage rs_r0(RegStorage::kValid | r0);
+constexpr RegStorage rs_r0q(RegStorage::kValid | r0q);
 constexpr RegStorage rs_rAX = rs_r0;
 constexpr RegStorage rs_r1(RegStorage::kValid | r1);
+constexpr RegStorage rs_r1q(RegStorage::kValid | r1q);
 constexpr RegStorage rs_rCX = rs_r1;
 constexpr RegStorage rs_r2(RegStorage::kValid | r2);
+constexpr RegStorage rs_r2q(RegStorage::kValid | r2q);
 constexpr RegStorage rs_rDX = rs_r2;
 constexpr RegStorage rs_r3(RegStorage::kValid | r3);
+constexpr RegStorage rs_r3q(RegStorage::kValid | r3q);
 constexpr RegStorage rs_rBX = rs_r3;
 constexpr RegStorage rs_rX86_SP_64(RegStorage::kValid | r4sp_64);
 constexpr RegStorage rs_rX86_SP_32(RegStorage::kValid | r4sp_32);
 extern RegStorage rs_rX86_SP;
 constexpr RegStorage rs_r5(RegStorage::kValid | r5);
+constexpr RegStorage rs_r5q(RegStorage::kValid | r5q);
 constexpr RegStorage rs_rBP = rs_r5;
 constexpr RegStorage rs_r6(RegStorage::kValid | r6);
+constexpr RegStorage rs_r6q(RegStorage::kValid | r6q);
 constexpr RegStorage rs_rSI = rs_r6;
 constexpr RegStorage rs_r7(RegStorage::kValid | r7);
+constexpr RegStorage rs_r7q(RegStorage::kValid | r7q);
 constexpr RegStorage rs_rDI = rs_r7;
 constexpr RegStorage rs_rRET(RegStorage::kValid | rRET);
+#ifdef TARGET_REX_SUPPORT
+constexpr RegStorage rs_r8(RegStorage::kValid | r8);
+constexpr RegStorage rs_r8q(RegStorage::kValid | r8q);
+constexpr RegStorage rs_r9(RegStorage::kValid | r9);
+constexpr RegStorage rs_r9q(RegStorage::kValid | r9q);
+constexpr RegStorage rs_r10(RegStorage::kValid | r10);
+constexpr RegStorage rs_r10q(RegStorage::kValid | r10q);
+constexpr RegStorage rs_r11(RegStorage::kValid | r11);
+constexpr RegStorage rs_r11q(RegStorage::kValid | r11q);
+constexpr RegStorage rs_r12(RegStorage::kValid | r12);
+constexpr RegStorage rs_r12q(RegStorage::kValid | r12q);
+constexpr RegStorage rs_r13(RegStorage::kValid | r13);
+constexpr RegStorage rs_r13q(RegStorage::kValid | r13q);
+constexpr RegStorage rs_r14(RegStorage::kValid | r14);
+constexpr RegStorage rs_r14q(RegStorage::kValid | r14q);
+constexpr RegStorage rs_r15(RegStorage::kValid | r15);
+constexpr RegStorage rs_r15q(RegStorage::kValid | r15q);
+#endif
 
 constexpr RegStorage rs_fr0(RegStorage::kValid | fr0);
 constexpr RegStorage rs_fr1(RegStorage::kValid | fr1);
@@ -221,14 +261,14 @@ constexpr RegStorage rs_dr5(RegStorage::kValid | dr5);
 constexpr RegStorage rs_dr6(RegStorage::kValid | dr6);
 constexpr RegStorage rs_dr7(RegStorage::kValid | dr7);
 
-constexpr RegStorage rs_qr0(RegStorage::kValid | qr0);
-constexpr RegStorage rs_qr1(RegStorage::kValid | qr1);
-constexpr RegStorage rs_qr2(RegStorage::kValid | qr2);
-constexpr RegStorage rs_qr3(RegStorage::kValid | qr3);
-constexpr RegStorage rs_qr4(RegStorage::kValid | qr4);
-constexpr RegStorage rs_qr5(RegStorage::kValid | qr5);
-constexpr RegStorage rs_qr6(RegStorage::kValid | qr6);
-constexpr RegStorage rs_qr7(RegStorage::kValid | qr7);
+constexpr RegStorage rs_xr0(RegStorage::kValid | xr0);
+constexpr RegStorage rs_xr1(RegStorage::kValid | xr1);
+constexpr RegStorage rs_xr2(RegStorage::kValid | xr2);
+constexpr RegStorage rs_xr3(RegStorage::kValid | xr3);
+constexpr RegStorage rs_xr4(RegStorage::kValid | xr4);
+constexpr RegStorage rs_xr5(RegStorage::kValid | xr5);
+constexpr RegStorage rs_xr6(RegStorage::kValid | xr6);
+constexpr RegStorage rs_xr7(RegStorage::kValid | xr7);
 
 extern X86NativeRegisterPool rX86_ARG0;
 extern X86NativeRegisterPool rX86_ARG1;
@@ -418,9 +458,39 @@ enum X86OpCode {
   Binary0fOpCode(kX86Divsd),    // double divide
   Binary0fOpCode(kX86Divss),    // float divide
   Binary0fOpCode(kX86Punpckldq),  // Interleave low-order double words
-  kX86PsrlqRI,                  // right shift of floating point registers
-  kX86PsllqRI,                  // left shift of floating point registers
-  kX86SqrtsdRR,                 // sqrt of floating point register
+  Binary0fOpCode(kX86Sqrtsd),   // square root
+  Binary0fOpCode(kX86Pmulld),   // parallel integer multiply 32 bits x 4
+  Binary0fOpCode(kX86Pmullw),   // parallel integer multiply 16 bits x 8
+  Binary0fOpCode(kX86Mulps),    // parallel FP multiply 32 bits x 4
+  Binary0fOpCode(kX86Mulpd),    // parallel FP multiply 64 bits x 2
+  Binary0fOpCode(kX86Paddb),    // parallel integer addition 8 bits x 16
+  Binary0fOpCode(kX86Paddw),    // parallel integer addition 16 bits x 8
+  Binary0fOpCode(kX86Paddd),    // parallel integer addition 32 bits x 4
+  Binary0fOpCode(kX86Addps),    // parallel FP addition 32 bits x 4
+  Binary0fOpCode(kX86Addpd),    // parallel FP addition 64 bits x 2
+  Binary0fOpCode(kX86Psubb),    // parallel integer subtraction 8 bits x 16
+  Binary0fOpCode(kX86Psubw),    // parallel integer subtraction 16 bits x 8
+  Binary0fOpCode(kX86Psubd),    // parallel integer subtraction 32 bits x 4
+  Binary0fOpCode(kX86Subps),    // parallel FP subtraction 32 bits x 4
+  Binary0fOpCode(kX86Subpd),    // parallel FP subtraction 64 bits x 2
+  Binary0fOpCode(kX86Pand),     // parallel AND 128 bits x 1
+  Binary0fOpCode(kX86Por),      // parallel OR 128 bits x 1
+  Binary0fOpCode(kX86Pxor),     // parallel XOR 128 bits x 1
+  Binary0fOpCode(kX86Phaddw),   // parallel horizontal addition 16 bits x 8
+  Binary0fOpCode(kX86Phaddd),   // parallel horizontal addition 32 bits x 4
+  kX86PextrbRRI,                // Extract 8 bits from XMM into GPR
+  kX86PextrwRRI,                // Extract 16 bits from XMM into GPR
+  kX86PextrdRRI,                // Extract 32 bits from XMM into GPR
+  kX86PshuflwRRI,               // Shuffle 16 bits in lower 64 bits of XMM.
+  kX86PshufdRRI,                // Shuffle 32 bits in XMM.
+  kX86PsrawRI,                  // signed right shift of floating point registers 16 bits x 8
+  kX86PsradRI,                  // signed right shift of floating point registers 32 bits x 4
+  kX86PsrlwRI,                  // logical right shift of floating point registers 16 bits x 8
+  kX86PsrldRI,                  // logical right shift of floating point registers 32 bits x 4
+  kX86PsrlqRI,                  // logical right shift of floating point registers 64 bits x 2
+  kX86PsllwRI,                  // left shift of floating point registers 16 bits x 8
+  kX86PslldRI,                  // left shift of floating point registers 32 bits x 4
+  kX86PsllqRI,                  // left shift of floating point registers 64 bits x 2
   kX86Fild32M,                  // push 32-bit integer on x87 stack
   kX86Fild64M,                  // push 64-bit integer on x87 stack
   kX86Fstp32M,                  // pop top x87 fp stack and do 32-bit store
