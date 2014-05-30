@@ -175,6 +175,16 @@ enum X86NativeRegisterPool {
   fr5  = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 5,
   fr6  = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 6,
   fr7  = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 7,
+#ifdef TARGET_REX_SUPPORT
+  fr8  = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 8,
+  fr9  = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 9,
+  fr10 = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 10,
+  fr11 = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 11,
+  fr12 = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 12,
+  fr13 = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 13,
+  fr14 = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 14,
+  fr15 = RegStorage::k32BitSolo | RegStorage::kFloatingPoint | 15,
+#endif
 
   // xmm registers, double precision aliases.
   dr0  = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 0,
@@ -185,8 +195,18 @@ enum X86NativeRegisterPool {
   dr5  = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 5,
   dr6  = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 6,
   dr7  = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 7,
+#ifdef TARGET_REX_SUPPORT
+  dr8  = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 8,
+  dr9  = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 9,
+  dr10 = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 10,
+  dr11 = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 11,
+  dr12 = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 12,
+  dr13 = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 13,
+  dr14 = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 14,
+  dr15 = RegStorage::k64BitSolo | RegStorage::kFloatingPoint | 15,
+#endif
 
-  // xmm registers aliases.
+  // xmm registers, quad precision aliases
   xr0  = RegStorage::k128BitSolo | 0,
   xr1  = RegStorage::k128BitSolo | 1,
   xr2  = RegStorage::k128BitSolo | 2,
@@ -195,6 +215,16 @@ enum X86NativeRegisterPool {
   xr5  = RegStorage::k128BitSolo | 5,
   xr6  = RegStorage::k128BitSolo | 6,
   xr7  = RegStorage::k128BitSolo | 7,
+#ifdef TARGET_REX_SUPPORT
+  xr8  = RegStorage::k128BitSolo | 8,
+  xr9  = RegStorage::k128BitSolo | 9,
+  xr10 = RegStorage::k128BitSolo | 10,
+  xr11 = RegStorage::k128BitSolo | 11,
+  xr12 = RegStorage::k128BitSolo | 12,
+  xr13 = RegStorage::k128BitSolo | 13,
+  xr14 = RegStorage::k128BitSolo | 14,
+  xr15 = RegStorage::k128BitSolo | 15,
+#endif
 
   // TODO: as needed, add 256, 512 and 1024-bit xmm views.
 };
@@ -251,6 +281,16 @@ constexpr RegStorage rs_fr4(RegStorage::kValid | fr4);
 constexpr RegStorage rs_fr5(RegStorage::kValid | fr5);
 constexpr RegStorage rs_fr6(RegStorage::kValid | fr6);
 constexpr RegStorage rs_fr7(RegStorage::kValid | fr7);
+#ifdef TARGET_REX_SUPPORT
+constexpr RegStorage rs_fr8(RegStorage::kValid | fr8);
+constexpr RegStorage rs_fr9(RegStorage::kValid | fr9);
+constexpr RegStorage rs_fr10(RegStorage::kValid | fr10);
+constexpr RegStorage rs_fr11(RegStorage::kValid | fr11);
+constexpr RegStorage rs_fr12(RegStorage::kValid | fr12);
+constexpr RegStorage rs_fr13(RegStorage::kValid | fr13);
+constexpr RegStorage rs_fr14(RegStorage::kValid | fr14);
+constexpr RegStorage rs_fr15(RegStorage::kValid | fr15);
+#endif
 
 constexpr RegStorage rs_dr0(RegStorage::kValid | dr0);
 constexpr RegStorage rs_dr1(RegStorage::kValid | dr1);
@@ -260,6 +300,16 @@ constexpr RegStorage rs_dr4(RegStorage::kValid | dr4);
 constexpr RegStorage rs_dr5(RegStorage::kValid | dr5);
 constexpr RegStorage rs_dr6(RegStorage::kValid | dr6);
 constexpr RegStorage rs_dr7(RegStorage::kValid | dr7);
+#ifdef TARGET_REX_SUPPORT
+constexpr RegStorage rs_dr8(RegStorage::kValid | dr8);
+constexpr RegStorage rs_dr9(RegStorage::kValid | dr9);
+constexpr RegStorage rs_dr10(RegStorage::kValid | dr10);
+constexpr RegStorage rs_dr11(RegStorage::kValid | dr11);
+constexpr RegStorage rs_dr12(RegStorage::kValid | dr12);
+constexpr RegStorage rs_dr13(RegStorage::kValid | dr13);
+constexpr RegStorage rs_dr14(RegStorage::kValid | dr14);
+constexpr RegStorage rs_dr15(RegStorage::kValid | dr15);
+#endif
 
 constexpr RegStorage rs_xr0(RegStorage::kValid | xr0);
 constexpr RegStorage rs_xr1(RegStorage::kValid | xr1);
@@ -269,6 +319,16 @@ constexpr RegStorage rs_xr4(RegStorage::kValid | xr4);
 constexpr RegStorage rs_xr5(RegStorage::kValid | xr5);
 constexpr RegStorage rs_xr6(RegStorage::kValid | xr6);
 constexpr RegStorage rs_xr7(RegStorage::kValid | xr7);
+#ifdef TARGET_REX_SUPPORT
+constexpr RegStorage rs_xr8(RegStorage::kValid | xr8);
+constexpr RegStorage rs_xr9(RegStorage::kValid | xr9);
+constexpr RegStorage rs_xr10(RegStorage::kValid | xr10);
+constexpr RegStorage rs_xr11(RegStorage::kValid | xr11);
+constexpr RegStorage rs_xr12(RegStorage::kValid | xr12);
+constexpr RegStorage rs_xr13(RegStorage::kValid | xr13);
+constexpr RegStorage rs_xr14(RegStorage::kValid | xr14);
+constexpr RegStorage rs_xr15(RegStorage::kValid | xr15);
+#endif
 
 extern X86NativeRegisterPool rX86_ARG0;
 extern X86NativeRegisterPool rX86_ARG1;
@@ -351,10 +411,14 @@ enum X86OpCode {
   opcode ## 16RR, opcode ## 16RM, opcode ## 16RA, opcode ## 16RT, \
   opcode ## 16RI, opcode ## 16MI, opcode ## 16AI, opcode ## 16TI, \
   opcode ## 16RI8, opcode ## 16MI8, opcode ## 16AI8, opcode ## 16TI8, \
-  opcode ## 32MR, opcode ## 64MR, opcode ## 32AR, opcode ## 64AR, opcode ## 32TR,  \
-  opcode ## 32RR, opcode ## 32RM, opcode ## 64RM, opcode ## 32RA, opcode ## 64RA, opcode ## 32RT, opcode ## 64RT, \
-  opcode ## 32RI, opcode ## 64RI, opcode ## 32MI, opcode ## 32AI, opcode ## 32TI, \
-  opcode ## 32RI8, opcode ## 64RI8, opcode ## 32MI8, opcode ## 32AI8, opcode ## 32TI8
+  opcode ## 32MR, opcode ## 32AR, opcode ## 32TR,  \
+  opcode ## 32RR, opcode ## 32RM, opcode ## 32RA, opcode ## 32RT, \
+  opcode ## 32RI, opcode ## 32MI, opcode ## 32AI, opcode ## 32TI, \
+  opcode ## 32RI8, opcode ## 32MI8, opcode ## 32AI8, opcode ## 32TI8, \
+  opcode ## 64MR, opcode ## 64AR, opcode ## 64TR,  \
+  opcode ## 64RR, opcode ## 64RM, opcode ## 64RA, opcode ## 64RT, \
+  opcode ## 64RI, opcode ## 64MI, opcode ## 64AI, opcode ## 64TI, \
+  opcode ## 64RI8, opcode ## 64MI8, opcode ## 64AI8, opcode ## 64TI8
   BinaryOpCode(kX86Add),
   BinaryOpCode(kX86Or),
   BinaryOpCode(kX86Adc),
@@ -367,23 +431,32 @@ enum X86OpCode {
   kX86Imul16RRI, kX86Imul16RMI, kX86Imul16RAI,
   kX86Imul32RRI, kX86Imul32RMI, kX86Imul32RAI,
   kX86Imul32RRI8, kX86Imul32RMI8, kX86Imul32RAI8,
+  kX86Imul64RRI, kX86Imul64RMI, kX86Imul64RAI,
+  kX86Imul64RRI8, kX86Imul64RMI8, kX86Imul64RAI8,
   kX86Mov8MR, kX86Mov8AR, kX86Mov8TR,
   kX86Mov8RR, kX86Mov8RM, kX86Mov8RA, kX86Mov8RT,
   kX86Mov8RI, kX86Mov8MI, kX86Mov8AI, kX86Mov8TI,
   kX86Mov16MR, kX86Mov16AR, kX86Mov16TR,
   kX86Mov16RR, kX86Mov16RM, kX86Mov16RA, kX86Mov16RT,
   kX86Mov16RI, kX86Mov16MI, kX86Mov16AI, kX86Mov16TI,
-  kX86Mov32MR, kX86Mov64MR, kX86Mov32AR, kX86Mov64AR, kX86Mov32TR,
-  kX86Mov32RR, kX86Mov32RM, kX86Mov64RM, kX86Mov32RA, kX86Mov64RA, kX86Mov32RT, kX86Mov64RT,
-  kX86Mov32RI, kX86Mov32MI, kX86Mov32AI, kX86Mov32TI, kX86Mov64TI,
+  kX86Mov32MR, kX86Mov32AR, kX86Mov32TR,
+  kX86Mov32RR, kX86Mov32RM, kX86Mov32RA, kX86Mov32RT,
+  kX86Mov32RI, kX86Mov32MI, kX86Mov32AI, kX86Mov32TI,
   kX86Lea32RM,
   kX86Lea32RA,
+  kX86Mov64MR, kX86Mov64AR, kX86Mov64TR,
+  kX86Mov64RR, kX86Mov64RM, kX86Mov64RA, kX86Mov64RT,
+  kX86Mov64RI, kX86Mov64MI, kX86Mov64AI, kX86Mov64TI,
+  kX86Lea64RM,
+  kX86Lea64RA,
   // RRC - Register Register ConditionCode - cond_opcode reg1, reg2
   //             - lir operands - 0: reg1, 1: reg2, 2: CC
   kX86Cmov32RRC,
+  kX86Cmov64RRC,
   // RMC - Register Memory ConditionCode - cond_opcode reg1, [base + disp]
   //             - lir operands - 0: reg1, 1: base, 2: disp 3: CC
   kX86Cmov32RMC,
+  kX86Cmov64RMC,
 
   // RC - Register CL - opcode reg, CL
   //          - lir operands - 0: reg, 1: CL
@@ -397,7 +470,9 @@ enum X86OpCode {
   opcode ## 16RI, opcode ## 16MI, opcode ## 16AI, \
   opcode ## 16RC, opcode ## 16MC, opcode ## 16AC, \
   opcode ## 32RI, opcode ## 32MI, opcode ## 32AI, \
-  opcode ## 32RC, opcode ## 32MC, opcode ## 32AC
+  opcode ## 32RC, opcode ## 32MC, opcode ## 32AC, \
+  opcode ## 64RI, opcode ## 64MI, opcode ## 64AI, \
+  opcode ## 64RC, opcode ## 64MC, opcode ## 64AC
   BinaryShiftOpCode(kX86Rol),
   BinaryShiftOpCode(kX86Ror),
   BinaryShiftOpCode(kX86Rcl),
@@ -411,12 +486,18 @@ enum X86OpCode {
   kX86Shld32MRI,
   kX86Shrd32RRI,
   kX86Shrd32MRI,
+  kX86Shld64RRI,
+  kX86Shld64MRI,
+  kX86Shrd64RRI,
+  kX86Shrd64MRI,
 #define UnaryOpcode(opcode, reg, mem, array) \
   opcode ## 8 ## reg, opcode ## 8 ## mem, opcode ## 8 ## array, \
   opcode ## 16 ## reg, opcode ## 16 ## mem, opcode ## 16 ## array, \
-  opcode ## 32 ## reg, opcode ## 32 ## mem, opcode ## 32 ## array
+  opcode ## 32 ## reg, opcode ## 32 ## mem, opcode ## 32 ## array, \
+  opcode ## 64 ## reg, opcode ## 64 ## mem, opcode ## 64 ## array
   UnaryOpcode(kX86Test, RI, MI, AI),
   kX86Test32RR,
+  kX86Test64RR,
   UnaryOpcode(kX86Not, R, M, A),
   UnaryOpcode(kX86Neg, R, M, A),
   UnaryOpcode(kX86Mul,  DaR, DaM, DaA),
@@ -544,20 +625,20 @@ enum X86OpCode {
 
 /* Instruction assembly field_loc kind */
 enum X86EncodingKind {
-  kData,                                   // Special case for raw data.
-  kNop,                                    // Special case for variable length nop.
-  kNullary,                                // Opcode that takes no arguments.
-  kPrefix2Nullary,                         // Opcode that takes no arguments, but 2 prefixes.
-  kRegOpcode,                              // Shorter form of R instruction kind (opcode+rd)
-  kReg, kReg64, kMem, kArray,              // R, M and A instruction kinds.
-  kMemReg, kMemReg64, kArrayReg, kArrayReg64, kThreadReg,          // MR, AR and TR instruction kinds.
-  kRegReg, kRegMem, kRegArray, kRegThread, kReg64Thread,  // RR, RM, RA and RT instruction kinds.
-  kRegRegStore,                            // RR following the store modrm reg-reg encoding rather than the load.
-  kRegImm, kReg64Imm, kMemImm, kArrayImm, kThreadImm,  // RI, MI, AI and TI instruction kinds.
-  kRegRegImm, kRegMemImm, kRegArrayImm,    // RRI, RMI and RAI instruction kinds.
-  kMovRegImm,                              // Shorter form move RI.
-  kRegRegImmRev,                           // RRI with first reg in r/m
-  kMemRegImm,                              // MRI instruction kinds.
+  kData,                                    // Special case for raw data.
+  kNop,                                     // Special case for variable length nop.
+  kNullary,                                 // Opcode that takes no arguments.
+  kPrefix2Nullary,                          // Opcode that takes no arguments, but 2 prefixes.
+  kRegOpcode,                               // Shorter form of R instruction kind (opcode+rd)
+  kReg, kMem, kArray,                       // R, M and A instruction kinds.
+  kMemReg, kArrayReg, kThreadReg,           // MR, AR and TR instruction kinds.
+  kRegReg, kRegMem, kRegArray, kRegThread,  // RR, RM, RA and RT instruction kinds.
+  kRegRegStore,                             // RR following the store modrm reg-reg encoding rather than the load.
+  kRegImm, kMemImm, kArrayImm, kThreadImm,  // RI, MI, AI and TI instruction kinds.
+  kRegRegImm, kRegMemImm, kRegArrayImm,     // RRI, RMI and RAI instruction kinds.
+  kMovRegImm,                               // Shorter form move RI.
+  kRegRegImmRev,                            // RRI with first reg in r/m
+  kMemRegImm,                               // MRI instruction kinds.
   kShiftRegImm, kShiftMemImm, kShiftArrayImm,  // Shift opcode with immediate.
   kShiftRegCl, kShiftMemCl, kShiftArrayCl,     // Shift opcode with register CL.
   kRegRegReg, kRegRegMem, kRegRegArray,    // RRR, RRM, RRA instruction kinds.
@@ -607,6 +688,15 @@ struct X86EncodingMap {
 // 64 Bit Operand Size
 #define REX_W 0x48
 // Extension of the ModR/M reg field
+#define REX_R 0x44
+// Extension of the SIB index field
+#define REX_X 0x42
+// Extension of the ModR/M r/m field, SIB base field, or Opcode reg field
+#define REX_B 0x41
+// Mask extracting the least 3 bits of r0..r15
+#define kRegNumMask32 0x07
+// Value indicating that base or reg is not used
+#define NO_REG 0
 
 #define IS_SIMM8(v) ((-128 <= (v)) && ((v) <= 127))
 #define IS_SIMM16(v) ((-32768 <= (v)) && ((v) <= 32767))

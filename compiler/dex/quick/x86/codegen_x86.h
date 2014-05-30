@@ -331,15 +331,21 @@ class X86Mir2Lir : public Mir2Lir {
     std::vector<uint8_t>* ReturnCallFrameInformation();
 
   protected:
-    size_t ComputeSize(const X86EncodingMap* entry, int base, int displacement, bool has_sib);
+    size_t ComputeSize(const X86EncodingMap* entry, int base, int displacement,
+                       int reg_r, int reg_x, bool has_sib);
+    uint8_t LowRegisterBits(uint8_t reg);
+    bool NeedsRex(uint8_t reg);
     void EmitPrefix(const X86EncodingMap* entry);
+    void EmitPrefix(const X86EncodingMap* entry, uint8_t reg_r, uint8_t reg_x, uint8_t reg_b);
     void EmitOpcode(const X86EncodingMap* entry);
     void EmitPrefixAndOpcode(const X86EncodingMap* entry);
+    void EmitPrefixAndOpcode(const X86EncodingMap* entry,
+                             uint8_t reg_r, uint8_t reg_x, uint8_t reg_b);
     void EmitDisp(uint8_t base, int disp);
     void EmitModrmThread(uint8_t reg_or_opcode);
     void EmitModrmDisp(uint8_t reg_or_opcode, uint8_t base, int disp);
     void EmitModrmSibDisp(uint8_t reg_or_opcode, uint8_t base, uint8_t index, int scale, int disp);
-    void EmitImm(const X86EncodingMap* entry, int imm);
+    void EmitImm(const X86EncodingMap* entry, int64_t imm);
     void EmitOpRegOpcode(const X86EncodingMap* entry, uint8_t reg);
     void EmitOpReg(const X86EncodingMap* entry, uint8_t reg);
     void EmitOpMem(const X86EncodingMap* entry, uint8_t base, int disp);
@@ -362,7 +368,7 @@ class X86Mir2Lir : public Mir2Lir {
     void EmitMemRegImm(const X86EncodingMap* entry, uint8_t base, int disp, uint8_t reg1, int32_t imm);
     void EmitRegImm(const X86EncodingMap* entry, uint8_t reg, int imm);
     void EmitThreadImm(const X86EncodingMap* entry, int disp, int imm);
-    void EmitMovRegImm(const X86EncodingMap* entry, uint8_t reg, int imm);
+    void EmitMovRegImm(const X86EncodingMap* entry, uint8_t reg, int64_t imm);
     void EmitShiftRegImm(const X86EncodingMap* entry, uint8_t reg, int imm);
     void EmitShiftMemImm(const X86EncodingMap* entry, uint8_t base, int disp, int imm);
     void EmitShiftMemCl(const X86EncodingMap* entry, uint8_t base, int displacement, uint8_t cl);

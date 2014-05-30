@@ -91,6 +91,8 @@ include $(art_path)/oatdump/Android.mk
 include $(art_path)/dalvikvm/Android.mk
 include $(art_path)/tools/Android.mk
 include $(art_build_path)/Android.oat.mk
+include $(art_path)/sigchainlib/Android.mk
+
 
 
 
@@ -444,21 +446,21 @@ include $(art_build_path)/Android.cpplint.mk
 use-art:
 	adb root && sleep 3
 	adb shell stop
-	adb shell setprop persist.sys.dalvik.vm.lib.1 libart.so
+	adb shell setprop persist.sys.dalvik.vm.lib.2 libart.so
 	adb shell start
 
 .PHONY: use-artd
 use-artd:
 	adb root && sleep 3
 	adb shell stop
-	adb shell setprop persist.sys.dalvik.vm.lib.1 libartd.so
+	adb shell setprop persist.sys.dalvik.vm.lib.2 libartd.so
 	adb shell start
 
 .PHONY: use-dalvik
 use-dalvik:
 	adb root && sleep 3
 	adb shell stop
-	adb shell setprop persist.sys.dalvik.vm.lib.1 libdvm.so
+	adb shell setprop persist.sys.dalvik.vm.lib.2 libdvm.so
 	adb shell start
 
 .PHONY: use-art-full
@@ -468,7 +470,7 @@ use-art-full:
 	adb shell rm -rf $(ART_DALVIK_CACHE_DIR)/*
 	adb shell setprop dalvik.vm.dex2oat-flags ""
 	adb shell setprop dalvik.vm.image-dex2oat-flags ""
-	adb shell setprop persist.sys.dalvik.vm.lib.1 libart.so
+	adb shell setprop persist.sys.dalvik.vm.lib.2 libart.so
 	adb shell start
 
 .PHONY: use-artd-full
@@ -478,7 +480,7 @@ use-artd-full:
 	adb shell rm -rf $(ART_DALVIK_CACHE_DIR)/*
 	adb shell setprop dalvik.vm.dex2oat-flags ""
 	adb shell setprop dalvik.vm.image-dex2oat-flags ""
-	adb shell setprop persist.sys.dalvik.vm.lib.1 libartd.so
+	adb shell setprop persist.sys.dalvik.vm.lib.2 libartd.so
 	adb shell start
 
 .PHONY: use-art-smart
@@ -488,7 +490,7 @@ use-art-smart:
 	adb shell rm -rf $(ART_DALVIK_CACHE_DIR)/*
 	adb shell setprop dalvik.vm.dex2oat-flags "--compiler-filter=interpret-only"
 	adb shell setprop dalvik.vm.image-dex2oat-flags ""
-	adb shell setprop persist.sys.dalvik.vm.lib.1 libart.so
+	adb shell setprop persist.sys.dalvik.vm.lib.2 libart.so
 	adb shell start
 
 .PHONY: use-art-interpret-only
@@ -498,7 +500,7 @@ use-art-interpret-only:
 	adb shell rm -rf $(ART_DALVIK_CACHE_DIR)/*
 	adb shell setprop dalvik.vm.dex2oat-flags "--compiler-filter=interpret-only"
 	adb shell setprop dalvik.vm.image-dex2oat-flags "--compiler-filter=interpret-only"
-	adb shell setprop persist.sys.dalvik.vm.lib.1 libart.so
+	adb shell setprop persist.sys.dalvik.vm.lib.2 libart.so
 	adb shell start
 
 .PHONY: use-art-verify-none
@@ -508,7 +510,7 @@ use-art-verify-none:
 	adb shell rm -rf $(ART_DALVIK_CACHE_DIR)/*
 	adb shell setprop dalvik.vm.dex2oat-flags "--compiler-filter=verify-none"
 	adb shell setprop dalvik.vm.image-dex2oat-flags "--compiler-filter=verify-none"
-	adb shell setprop persist.sys.dalvik.vm.lib.1 libart.so
+	adb shell setprop persist.sys.dalvik.vm.lib.2 libart.so
 	adb shell start
 
 ########################################################################
