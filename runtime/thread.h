@@ -345,7 +345,7 @@ class Thread {
 
   ThrowLocation GetCurrentLocationForThrow() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_);
 
-  void SetTopOfStack(mirror::ArtMethod** top_method, uintptr_t pc) {
+  void SetTopOfStack(StackReference<mirror::ArtMethod>* top_method, uintptr_t pc) {
     tlsPtr_.managed_stack.SetTopQuickFrame(top_method);
     tlsPtr_.managed_stack.SetTopQuickFramePc(pc);
   }
@@ -1090,6 +1090,7 @@ class Thread {
   friend class Dbg;  // For SetStateUnsafe.
   friend class gc::collector::SemiSpace;  // For getting stack traces.
   friend class Runtime;  // For CreatePeer.
+  friend class QuickExceptionHandler;  // For dumping the stack.
   friend class ScopedThreadStateChange;
   friend class SignalCatcher;  // For SetStateUnsafe.
   friend class StubTest;  // For accessing entrypoints.
