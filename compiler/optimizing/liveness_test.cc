@@ -26,6 +26,18 @@
 
 namespace art {
 
+static void DumpBitVector(BitVector* vector,
+                          std::ostream& buffer,
+                          size_t count,
+                          const char* prefix) {
+  buffer << prefix;
+  buffer << '(';
+  for (size_t i = 0; i < count; ++i) {
+    buffer << vector->IsBitSet(i);
+  }
+  buffer << ")\n";
+}
+
 static void TestCode(const uint16_t* data, const char* expected) {
   ArenaPool pool;
   ArenaAllocator allocator(&pool);
@@ -43,12 +55,13 @@ static void TestCode(const uint16_t* data, const char* expected) {
   for (HInsertionOrderIterator it(*graph); !it.Done(); it.Advance()) {
     HBasicBlock* block = it.Current();
     buffer << "Block " << block->GetBlockId() << std::endl;
+    size_t ssa_values = liveness.GetNumberOfSsaValues();
     BitVector* live_in = liveness.GetLiveInSet(*block);
-    live_in->Dump(buffer, "  live in: ");
+    DumpBitVector(live_in, buffer, ssa_values, "  live in: ");
     BitVector* live_out = liveness.GetLiveOutSet(*block);
-    live_out->Dump(buffer, "  live out: ");
+    DumpBitVector(live_out, buffer, ssa_values, "  live out: ");
     BitVector* kill = liveness.GetKillSet(*block);
-    kill->Dump(buffer, "  kill: ");
+    DumpBitVector(kill, buffer, ssa_values, "  kill: ");
   }
   ASSERT_STREQ(expected, buffer.str().c_str());
 }

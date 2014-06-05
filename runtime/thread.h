@@ -326,7 +326,7 @@ class Thread {
     tlsPtr_.throw_location = throw_location;
   }
 
-  void ClearException() {
+  void ClearException() SHARED_LOCKS_REQUIRED(Locks::mutator_lock_) {
     tlsPtr_.exception = nullptr;
     tlsPtr_.throw_location.Clear();
   }
@@ -711,6 +711,13 @@ class Thread {
     return tlsPtr_.deoptimization_shadow_frame != nullptr;
   }
 
+  void SetShadowFrameUnderConstruction(ShadowFrame* sf);
+  void ClearShadowFrameUnderConstruction();
+
+  bool HasShadowFrameUnderConstruction() const {
+    return tlsPtr_.shadow_frame_under_construction != nullptr;
+  }
+
   std::deque<instrumentation::InstrumentationStackFrame>* GetInstrumentationStack() {
     return tlsPtr_.instrumentation_stack;
   }
@@ -962,8 +969,8 @@ class Thread {
       stack_trace_sample(nullptr), wait_next(nullptr), monitor_enter_object(nullptr),
       top_handle_scope(nullptr), class_loader_override(nullptr), long_jump_context(nullptr),
       instrumentation_stack(nullptr), debug_invoke_req(nullptr), single_step_control(nullptr),
-      deoptimization_shadow_frame(nullptr), name(nullptr), pthread_self(0),
-      last_no_thread_suspension_cause(nullptr), thread_local_start(nullptr),
+      deoptimization_shadow_frame(nullptr), shadow_frame_under_construction(nullptr), name(nullptr),
+      pthread_self(0), last_no_thread_suspension_cause(nullptr), thread_local_start(nullptr),
       thread_local_pos(nullptr), thread_local_end(nullptr), thread_local_objects(0),
       thread_local_alloc_stack_top(nullptr), thread_local_alloc_stack_end(nullptr) {
     }
@@ -1039,6 +1046,9 @@ class Thread {
     // Shadow frame stack that is used temporarily during the deoptimization of a method.
     ShadowFrame* deoptimization_shadow_frame;
 
+    // Shadow frame stack that is currently under construction but not yet on the stack
+    ShadowFrame* shadow_frame_under_construction;
+
     // A cached copy of the java.lang.Thread's name.
     std::string* name;
 
@@ -1095,6 +1105,8 @@ class Thread {
   friend class SignalCatcher;  // For SetStateUnsafe.
   friend class StubTest;  // For accessing entrypoints.
   friend class ThreadList;  // For ~Thread and Destroy.
+
+  friend class EntrypointsOrderTest;  // To test the order of tls entries.
 
   DISALLOW_COPY_AND_ASSIGN(Thread);
 };

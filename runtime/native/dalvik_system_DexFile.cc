@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <set>
 #include <fcntl.h>
+#include <sys/sendfile.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "base/logging.h"
@@ -35,6 +37,7 @@
 #include "profiler.h"
 #include "runtime.h"
 #include "scoped_thread_state_change.h"
+#include "ScopedFd.h"
 #include "ScopedLocalRef.h"
 #include "ScopedUtfChars.h"
 #include "well_known_classes.h"
@@ -218,36 +221,33 @@ static jobjectArray DexFile_getClassNameList(JNIEnv* env, jclass, jlong cookie) 
   return result;
 }
 
-// Copy a profile file
 static void CopyProfileFile(const char* oldfile, const char* newfile) {
-  int fd = open(oldfile, O_RDONLY);
-  if (fd < 0) {
-    // If we can't open the file show the uid:gid of the this process to allow
-    // diagnosis of the problem.
-    LOG(ERROR) << "Failed to open profile file " << oldfile<< ".  My uid:gid is "
-      << getuid() << ":" << getgid();
+  ScopedFd src(open(oldfile, O_RDONLY));
+  if (src.get() == -1) {
+    PLOG(ERROR) << "Failed to open profile file " << oldfile
+      << ". My uid:gid is " << getuid() << ":" << getgid();
+    return;
+  }
+
+  struct stat stat_src;
+  if (fstat(src.get(), &stat_src) == -1) {
+    PLOG(ERROR) << "Failed to get stats for profile file  " << oldfile
+      << ". My uid:gid is " << getuid() << ":" << getgid();
     return;
   }
 
   // Create the copy with rw------- (only accessible by system)
-  int fd2 = open(newfile, O_WRONLY|O_CREAT|O_TRUNC, 0600);
-  if (fd2 < 0) {
-    // If we can't open the file show the uid:gid of the this process to allow
-    // diagnosis of the problem.
-    LOG(ERROR) << "Failed to create/write prev profile file " << newfile << ".  My uid:gid is "
-      << getuid() << ":" << getgid();
+  ScopedFd dst(open(newfile, O_WRONLY|O_CREAT|O_TRUNC, 0600));
+  if (dst.get()  == -1) {
+    PLOG(ERROR) << "Failed to create/write prev profile file " << newfile
+      << ".  My uid:gid is " << getuid() << ":" << getgid();
     return;
   }
-  char buf[4096];
-  while (true) {
-    int n = read(fd, buf, sizeof(buf));
-    if (n <= 0) {
-      break;
-    }
-    write(fd2, buf, n);
+
+  if (sendfile(dst.get(), src.get(), nullptr, stat_src.st_size) == -1) {
+    PLOG(ERROR) << "Failed to copy profile file " << oldfile << " to " << newfile
+      << ". My uid:gid is " << getuid() << ":" << getgid();
   }
-  close(fd);
-  close(fd2);
 }
 
 static double GetDoubleProperty(const char* property, double minValue, double maxValue, double defaultValue) {

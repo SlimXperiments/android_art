@@ -122,6 +122,16 @@ ShadowFrame* Thread::GetAndClearDeoptimizationShadowFrame(JValue* ret_val) {
   return sf;
 }
 
+void Thread::SetShadowFrameUnderConstruction(ShadowFrame* sf) {
+  sf->SetLink(tlsPtr_.shadow_frame_under_construction);
+  tlsPtr_.shadow_frame_under_construction = sf;
+}
+
+void Thread::ClearShadowFrameUnderConstruction() {
+  CHECK_NE(static_cast<ShadowFrame*>(nullptr), tlsPtr_.shadow_frame_under_construction);
+  tlsPtr_.shadow_frame_under_construction = tlsPtr_.shadow_frame_under_construction->GetLink();
+}
+
 void Thread::InitTid() {
   tls32_.tid = ::art::GetTid();
 }
@@ -814,6 +824,26 @@ void Thread::DumpState(std::ostream& os, const Thread* thread, pid_t tid) {
     os << "  | stack=" << reinterpret_cast<void*>(thread->tlsPtr_.stack_begin) << "-"
         << reinterpret_cast<void*>(thread->tlsPtr_.stack_end) << " stackSize="
         << PrettySize(thread->tlsPtr_.stack_size) << "\n";
+    // Dump the held mutexes.
+    os << "  | held mutexes=";
+    for (size_t i = 0; i < kLockLevelCount; ++i) {
+      if (i != kMonitorLock) {
+        BaseMutex* mutex = thread->GetHeldMutex(static_cast<LockLevel>(i));
+        if (mutex != nullptr) {
+          os << " \"" << mutex->GetName() << "\"";
+          if (mutex->IsReaderWriterMutex()) {
+            ReaderWriterMutex* rw_mutex = down_cast<ReaderWriterMutex*>(mutex);
+            if (rw_mutex->IsExclusiveHeld(thread)) {
+              os << "(exclusive held)";
+            } else {
+              CHECK(rw_mutex->IsSharedHeld(thread));
+              os << "(shared held)";
+            }
+          }
+        }
+      }
+    }
+    os << "\n";
   }
 }
 
@@ -2124,6 +2154,15 @@ void Thread::VisitRoots(RootCallback* visitor, void* arg) {
     RootCallbackVisitor visitorToCallback(visitor, arg, thread_id);
     ReferenceMapVisitor<RootCallbackVisitor> mapper(this, nullptr, visitorToCallback);
     for (ShadowFrame* shadow_frame = tlsPtr_.deoptimization_shadow_frame; shadow_frame != nullptr;
+        shadow_frame = shadow_frame->GetLink()) {
+      mapper.VisitShadowFrame(shadow_frame);
+    }
+  }
+  if (tlsPtr_.shadow_frame_under_construction != nullptr) {
+    RootCallbackVisitor visitorToCallback(visitor, arg, thread_id);
+    ReferenceMapVisitor<RootCallbackVisitor> mapper(this, nullptr, visitorToCallback);
+    for (ShadowFrame* shadow_frame = tlsPtr_.shadow_frame_under_construction;
+        shadow_frame != nullptr;
         shadow_frame = shadow_frame->GetLink()) {
       mapper.VisitShadowFrame(shadow_frame);
     }

@@ -36,6 +36,7 @@ RUNTIME_GTEST_COMMON_SRC_FILES := \
 	runtime/dex_instruction_visitor_test.cc \
 	runtime/dex_method_iterator_test.cc \
 	runtime/entrypoints/math_entrypoints_test.cc \
+	runtime/entrypoints_order_test.cc \
 	runtime/exception_test.cc \
 	runtime/gc/accounting/space_bitmap_test.cc \
 	runtime/gc/heap_test.cc \
@@ -187,16 +188,15 @@ define build-art-test
   LOCAL_CFLAGS := $(ART_TEST_CFLAGS)
   include external/libcxx/libcxx.mk
   ifeq ($$(art_target_or_host),target)
-    LOCAL_CLANG := $(ART_TARGET_CLANG)
-    LOCAL_CFLAGS += $(ART_TARGET_CFLAGS) $(ART_TARGET_DEBUG_CFLAGS)
-    LOCAL_CFLAGS_x86 := $(ART_TARGET_CFLAGS_x86)
+  	$(call set-target-local-clang-vars)
+  	$(call set-target-local-cflags-vars,debug)
     LOCAL_SHARED_LIBRARIES += libdl libicuuc libicui18n libnativehelper libz libcutils libvixl
     LOCAL_STATIC_LIBRARIES += libgtest_libc++
     LOCAL_MODULE_PATH_32 := $(ART_NATIVETEST_OUT)/$(ART_TARGET_ARCH_32)
     LOCAL_MODULE_PATH_64 := $(ART_NATIVETEST_OUT)/$(ART_TARGET_ARCH_64)
     LOCAL_MULTILIB := both
     include $(BUILD_EXECUTABLE)
-    
+
     ART_TARGET_GTEST_EXECUTABLES$(ART_PHONY_TEST_TARGET_SUFFIX) += $(ART_NATIVETEST_OUT)/$(TARGET_ARCH)/$$(LOCAL_MODULE)
     art_gtest_target := test-art-$$(art_target_or_host)-gtest-$$(art_gtest_name)
 
